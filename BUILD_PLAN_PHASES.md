@@ -1,7 +1,7 @@
 # Splatter — Build, Audit, Fix & Verify Plan
 
 **Last updated:** 2026-07-09  
-**Status:** Phase 0 ✅ COMPLETE — Phase 1 in progress
+**Status:** Phase 0 ✅ COMPLETE — Phase 1 ✅ COMPLETE
 
 ---
 
@@ -306,6 +306,36 @@ pub enum PluginState {
 **Verify:**
 
 - [ ] Disable plugin → UI shows "Disabled" (not "Error")
+
+---
+
+## Phase 1 ✅ — High-Bug Fixes COMPLETE
+
+### 1.1 ✅ `focus_direction()` / `focus_by_id()` — FIXED
+
+**File:** `splatter-core/src/layout/mod.rs`  
+**Bug:** Empty implementations — arrow keys did nothing.  
+**Fix:** Added `focused_id: Option<NodeId>` field to `LayoutTree`. Implemented cycle-through navigation — all directional keys map to prev/next leaf in the leaf list.
+
+**Tests:** `test_focus_by_id`, `test_focus_by_id_invalid`, `test_focus_direction`, `test_focus_cycles_all_leaves`
+
+### 1.2 ✅ Settings Tabs — FIXED
+
+**File:** `web/src/components/Settings.tsx`  
+**Bug:** All 5 sections stacked, no tab state, no click handlers.  
+**Fix:** Added `useState("terminal")` for active tab, `onClick` handlers on tab buttons, `activeTab === tab` conditional rendering per section, blue border on active tab.
+
+### 1.3 ✅ Tray Manager `tick()` — FIXED
+
+**File:** `splatter-core/src-tauri/src/main.rs`  
+**Bug:** `tick()` never called, tray always idle.  
+**Fix:** Added tray state clone in PTY drain loop. After draining agent outputs, aggregates agent statuses and calls `tray.tick()`. Also added `AgentManager.iter()` method.
+
+### 1.4 ✅ PluginHost `set_enabled()` — FIXED
+
+**File:** `splatter-core/src/plugin/mod.rs`  
+**Bug:** Used `PluginState::Error("Disabled")` for disabled plugins.  
+**Fix:** Added `PluginState::Disabled` variant, now uses proper state.
 
 ---
 
