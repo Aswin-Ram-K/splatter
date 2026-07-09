@@ -7,6 +7,7 @@
 mod agent_commands;
 mod config_commands;
 mod layout_commands;
+mod plugin_commands;
 
 use splatter_core::{
     agent::AgentManager,
@@ -148,6 +149,10 @@ fn main() {
             config_commands::get_config,
             config_commands::save_config,
             config_commands::get_agent_state_for_id,
+            // Plugin commands
+            plugin_commands::list_plugins,
+            plugin_commands::toggle_plugin,
+            plugin_commands::get_plugin_status,
         ])
         .run(tauri::generate_context!())
         .expect("Failed to run Splatter app");

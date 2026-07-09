@@ -5,6 +5,7 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { PluginList } from "./PluginList";
 
 interface SettingsProps {
 	visible: boolean;
@@ -61,7 +62,7 @@ export function Settings({ visible, onClose }: SettingsProps) {
 
 				{/* Tabs */}
 				<div className="flex border-b border-gray-700">
-					{["terminal", "agents", "notifications", "hotkeys"].map((tab) => (
+					{["terminal", "agents", "notifications", "hotkeys", "plugins"].map((tab) => (
 						<button
 							key={tab}
 							className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white border-b-2 border-transparent hover:border-blue-500"
@@ -141,6 +142,11 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
+						{/* Plugins Section }*
+						<SettingsSection title="Plugins">
+							<PluginList />
+						</SettingsSection>
+
 					{/* Agent Settings */}
 					<SettingsSection title="Agents">
 						<SettingsInput
@@ -183,6 +189,11 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
+						{/* Plugins Section }*
+						<SettingsSection title="Plugins">
+							<PluginList />
+						</SettingsSection>
+
 					{/* Notification Settings */}
 					<SettingsSection title="Notifications">
 						<SettingsToggle
@@ -224,6 +235,17 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
+						{/* Plugins Section }*
+						<SettingsSection title="Plugins">
+							<PluginList />
+						</SettingsSection>
+
+
+					{/* Plugins Section */}
+					<SettingsSection title="Plugins">
+						<PluginList />
+					</SettingsSection>
+				</div>
 					{/* Hotkey Settings */}
 					<SettingsSection title="Hotkeys">
 						{Object.entries(settings.hotkeys).map(([key, value]) => (
@@ -239,6 +261,11 @@ export function Settings({ visible, onClose }: SettingsProps) {
 							/>
 						))}
 					</SettingsSection>
+
+						{/* Plugins Section }*
+						<SettingsSection title="Plugins">
+							<PluginList />
+						</SettingsSection>
 				</div>
 
 				{/* Footer */}

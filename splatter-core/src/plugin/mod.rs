@@ -146,4 +146,27 @@ impl PluginHost {
             }
         }
     }
+
+    /// Notify all plugins of agent output.
+    pub fn on_agent_output(&self, agent_id: &str, bytes: usize) {
+        for (name, plugin) in &self.plugins {
+            if plugin.enabled && plugin.manifest.scripts.on_agent_output {
+                log::debug!(
+                    "Plugin '{}' called: onAgentOutput({} - {} bytes)",
+                    name,
+                    agent_id,
+                    bytes
+                );
+            }
+        }
+    }
+
+    /// Notify all plugins of a hotkey.
+    pub fn on_hotkey(&self, hotkey: &str) {
+        for (name, plugin) in &self.plugins {
+            if plugin.enabled && plugin.manifest.scripts.on_hotkey {
+                log::debug!("Plugin '{}' called: onHotkey({})", name, hotkey);
+            }
+        }
+    }
 }
