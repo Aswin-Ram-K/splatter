@@ -1,211 +1,191 @@
 # Splatter — Full Project Audit Report
 
-**Date:** 2026-07-09
-**Scope:** All layers — Rust core, Tauri 2 bindings, React 19 web frontend, Ghostty WASM integration
-**Status:** 24 bugs/defects found across 6 categories
+**Date:** 2026-07-09  
+**Scope:** Rust core (`splatter-core`), Tauri bindings (`src-tauri`), React frontend (`web`)  
+**Status:** Compiles ✅, 14 tests pass ✅, but has **18 bugs** across all layers
 
 ---
 
-## 🔴 CRITICAL — Breaks Core Functionality
+## Severity Key
 
-### C1. WASM Loading — "Could not connect to localhost: Connection refused"
-
-**Severity:** P0 — App crashes on startup if WASM can't load
-**Location:** `ghostty-web` → `useGhostty.ts` → `Ghostty.load()` fetch chain
-**Root Cause:** The Ghostty WASM loader tries these fetch paths in order:
-
-1. `file://` path (Node.js, fails in Tauri webview)
-2. `import.meta.url` relative → `tauri://localhost/assets/ghostty-vt.wasm` (file doesn't exist there)
-3. `./ghostty-vt.wasm` → relative (fails)
-4. `/ghostty-vt.wasm` → but this hits Tauri's CSP or dev-server mismatch
-
-In **dev mode**: The Vite dev server serves on `http://localhost:5173`, but the Ghostty loader in the webview tries to resolve `/ghostty-vt.wasm` relative to the Tauri webview URL. The `configureServer` middleware fix handles this for dev, but production Tauri build may not serve `ghostty-vt.wasm` from `dist/` root correctly.
-
-**Fix:** Add explicit `wasmPath` to `Ghostty.load()` using Tauri's asset resolution, or configure Tauri to proxy the WASM path.
-
-### C2. Layout Data Structure Mismatch — Flat Array vs Tree
-
-**Severity:** P0 — Entire layout rendering broken
-**Location:** `layout_commands.rs::get_layout()` ↔ `Layout.tsx` ↔ `layoutStore.ts`
-**Root Cause:** `get_layout()` returns a **flat JSON array** of leaf panes:
-
-```json
-[{"id": 1, "rect": {...}, "agent_id": "xxx"}, {"id": 2, ...}]
-```
-
-But `Layout.tsx` expects a **tree structure** with nested `split`/`leaf` nodes:
-
-```ts
-{ type: "split", left: { type: "leaf" }, right: { type: "leaf" } }
-```
-
-The `setRoot()` call in `Layout.tsx` and `App.tsx` stores the flat array as `root`, then `renderNode()` can't find `node.type === "leaf"` or `"split"`.
-
-**Fix:** Either:
-A) Change `get_layout()` to return a proper BSP tree (recommended), OR
-B) Change frontend to work with flat pane array
-
-### C3. Ghostty `writeInput` Sends to Display Instead of PTY
-
-**Severity:** P1 — User keyboard input never reaches PTY
-**Location:** `useGhostty.ts` → `writeInput()`
-**Code:**
-
-```ts
-const writeInput = useCallback((data: Uint8Array) => {
-    termRef.current.write(data);  // ❌ writes to terminal DISPLAY, not PTY
-}, []);
-```
-
-Should use `term.input(data, true)` or trigger the `onData` emitter to send to PTY.
-
-### C4. Ghostty `onData` Callback Misnamed/Confused
-
-**Severity:** P1 — PTY input flow unclear
-**Location:** `GhosttyTerminal.tsx` → `useGhostty({ onOutput: ... })`
-The `onOutput` callback in `useGhostty` actually fires on **user keyboard input** (Ghostty's `onData` event fires when user types), not terminal output. The callback name is misleading and the flow sends keyboard data to PTY via `write_to_agent`, which is correct but confusingly named.
+| Level | Meaning |
+|-------|---------|
+| 🔴 **Critical** | App won't render / crashes / data loss |
+| 🟠 **High** | Feature broken, wrong behavior, visible defect |
+| 🟡 **Medium** | Partially works, edge-case failures, dead code |
+| 🔵 **Low** | Style, minor inefficiency, missing polish |
 
 ---
 
-## 🟠 HIGH — Significant Feature Breakage
+## 🔴 Critical (3)
 
-### H1. Layout Store Not Synced with Tauri Backend
+### CR-01: `LayoutTree::close()` — always pops last node, ignores `_node_id`
 
-**Location:** `layoutStore.ts` ↔ `main.rs` layout state
-**Issue:** The frontend maintains its own `panes: Map<number, Pane>` that is never synchronized with the actual `LayoutTree` in Rust. Splits, closes, and panes created in one place don't reflect in the other.
+**File:** `splatter-core/src/layout/mod.rs:234`  
+**Symptom:** Closing any pane always closes the *last* leaf regardless of which one you clicked. The `_node_id` parameter is completely ignored (underscore-prefixed).  
+**Root cause:** The method just does `self.nodes.pop()` without looking at the ID.  
+**Fix:** Find the node by `node_id`, remove it, and promote its sibling.
 
-### H2. `splitPane()` Creates Duplicates
+### CR-02: `LayoutTree::get_node()` and `get_node_mut()` — always return `None`
 
-**Location:** `layoutStore.ts::splitPane()`
-**Issue:** Both `left` and `right` leaf nodes get the same `rightNodeId`, and both panes map to the same `rightNodeId` in `newPanes`. Creates orphaned nodes and duplicate IDs.
+**File:** `splatter-core/src/layout/mod.rs:283-286`  
+**Symptom:** Any code that tries to find a node by ID gets `None`. This breaks split, close, focus, and any ID-based layout operations.  
+**Root cause:** Body is `None` with no search logic.  
+**Fix:** Search `self.nodes` for a matching ID, return `Some(node)`.
 
-### H3. Layout Tree Not Persisted Across Commands
+### CR-03: `LayoutTree::split()` on a Split node — discards the split node
 
-**Location:** `layout_commands.rs::set_preset()`
-**Issue:** `set_preset()` creates a new `LayoutTree` but doesn't set it on the `AppState.layout` — it just drops the value on the floor.
-
-### H4. Ghostty Terminal Doesn't Get Focus
-
-**Location:** `GhosttyTerminal.tsx`
-**Issue:** The container div has `tabIndex={0}` but Ghostty's `open()` adds its own `contenteditable` textarea for input. When user clicks a terminal, focus goes to the parent div, not the Ghostty textarea, causing input to not reach the PTY.
-
-### H5. Agent Spawn Race Condition
-
-**Location:** `App.tsx` → `new_pane()` call
-**Issue:** `invoke("new_pane", ...)` is called inside a `useEffect` without proper dependency management. If React StrictMode double-mounts, two agents spawn. Also, the agent store is updated before the `agent-spawned` event fires, creating potential state inconsistency.
+**File:** `splatter-core/src/layout/mod.rs:163-222`  
+**Symptom:** Splitting a split area (when the last node is a `Split`) creates two raw leaves from the split's children and discards the split node entirely. The tree structure is broken.  
+**Root cause:** The `Split` arm extracts the split's children as leaves but never creates a new split node to replace the old one. The `self.nodes.push(split_node)` at line 227 only fires for the Leaf arm.  
+**Fix:** After the `Split` arm, push the new `LayoutNode::Split` to `self.nodes` before returning.
 
 ---
 
-## 🟡 MEDIUM — UX/Code Quality
+## 🟠 High (7)
 
-### M1. Settings — Hotkeys Section Not Wrapped
+### H-01: `LayoutTree::focus_direction()` — no-op
 
-**Location:** `Settings.tsx`
-**Issue:** The Hotkeys section (`Object.entries(settings.hotkeys)`) is not wrapped in a `<SettingsSection>`, breaking visual consistency.
+**File:** `splatter-core/src/layout/mod.rs:239`  
+**Symptom:** Arrow key / direction focus does nothing.  
+**Fix:** Implement neighbor search across leaves, update focused node.
 
-### M2. Settings — Copy-Paste Errors with Plugins Sections
+### H-02: `LayoutTree::focus_by_id()` — no-op
 
-**Location:** `Settings.tsx`
-**Issue:** Four commented-out `<SettingsSection title="Plugins">` blocks litter the code:
+**File:** `splatter-core/src/layout/mod.rs:242`  
+**Symptom:** Clicking a pane to focus it does nothing at the Rust level.  
+**Fix:** Search for the node by ID and set as focused.
 
-```jsx
-{/* Plugins Section }*
-    <SettingsSection title="Plugins">...</SettingsSection>
-```
+### H-03: Settings tabs — no active tab state, all sections render simultaneously
 
-These are dead code and indicate copy-paste errors.
+**File:** `web/src/components/Settings.tsx:49-60`  
+**Symptom:** All five settings sections render at once, stacked on top of each other. No tab click handlers. User sees overlapping garbage.  
+**Fix:** Add `activeTab` state, conditional rendering per tab, `onClick` handlers, and active tab styling.
 
-### M3. Ghostty `onResize` Double-Fired
+### H-04: `useGhostty()` — re-init on every `cols`/`rows` change, never reinitializes
 
-**Location:** `useGhostty.ts`
-**Issue:** `onResize` is called both during initialization AND on `term.onResize()`. If Ghostty fires an initial resize event, `onResize` fires twice.
+**File:** `web/src/hooks/useGhostty.ts:29`  
+**Symptom:** `useEffect` deps are `[]`, so Ghostty only initializes once. If `cols`/`rows` change (pane resize), the effect doesn't re-run. But the resize is handled by the separate `resize()` callback — so this is mostly OK. However, if the container element changes (e.g., after a pane close), the terminal won't reattach.  
+**Fix:** Either add `containerRef` to deps, or handle re-mount in the cleanup.
 
-### M4. Ghostty Terminal Resize Calculation Inaccurate
+### H-05: Layout store — `root` never set on initial load when `get_layout` returns `null`
 
-**Location:** `GhosttyTerminal.tsx` → `cols/rows calculation`
-**Code:**
+**File:** `web/src/components/Layout.tsx:28-35`  
+**Symptom:** If `get_layout` returns `null` (first launch before any pane is created), the layout stays `null` and shows "No panes". But `App.tsx` creates a pane via `new_pane`, and the `layout-changed` listener should update `root`. The race between the initial fetch and the event is not handled.  
+**Fix:** Add a `layoutInitialized` ref, and in `layout-changed` handler, set root even if initial fetch returned null.
 
-```ts
-cols: Math.max(10, Math.floor(rect.width / 8)),
-rows: Math.max(3, Math.floor(rect.height / 16)),
-```
+### H-06: Tray Manager — `tick()` never called, tray status always `Idle`
 
-Using fixed pixel-to-cell ratios (8px/col, 16px/row) doesn't match Ghostty's actual font sizing. When font size changes (e.g., 15px), the calculation is wrong.
+**File:** `splatter-core/src/tray/mod.rs:87-103`  
+**Symptom:** System tray always shows "Idle" regardless of agent count. The `tick()` method exists but is never called from `main.rs`.  
+**Fix:** Call `tray.tick()` from the PTY drain loop with current agent states.
 
-### M5. Layout Tree Node IDs Use `Date.now()`
+### H-07: `PluginHost::set_enabled()` — sets `state` to `Error("Disabled")` instead of a proper disabled state
 
-**Location:** `layoutStore.ts::splitPane()` and `setPreset()`
-**Issue:** `Date.now()` generates numbers that can collide under rapid operations. Should use a counter or UUID.
-
-### M6. `spawn_agent` Tauri Command Registered but Never Called
-
-**Location:** `main.rs` → `agent_commands.rs`
-**Issue:** The `spawn_agent` command is registered but `App.tsx` calls `new_pane` directly. Dead code.
+**File:** `splatter-core/src/plugin/mod.rs:112-118`  
+**Symptom:** Disabled plugin shows `state: Error("Disabled")` in the UI.  
+**Fix:** Add `PluginState::Disabled` variant.
 
 ---
 
-## 🔵 LOW — Code Quality/Style
+## 🟡 Medium (5)
 
-### L1. Unused Code
+### M-01: `spawn_agent()` function in `agent_commands.rs` is dead code
 
-- `agent_commands.rs::spawn_agent()` — unused
-- `hotkey/mod.rs` — 5 unused methods in `HotkeyConfig`
-- `layout/mod.rs::next_in_direction()` — unused
-- `layout_commands.rs::set_preset()` — doesn't actually apply the preset
+**File:** `splatter-core/src-tauri/src/agent_commands.rs:8-31`  
+**Symptom:** Function declared but never registered in `tauri::generate_handler![]`.  
+**Fix:** Remove or wire it up.
 
-### L2. Clippy Warnings
+### M-02: `write_to_agent` — double-lock of `agents` mutex (wasteful, not harmful)
 
-- `unsafe { nix::unistd::close(slave_fd) }` — unnecessary unsafe block (Line 214)
-- `write_plugin(&PathBuf)` — should be `&Path`
-- `profiles for the non root package will be ignored` — Cargo.toml config issue
+**File:** `splatter-core/src-tauri/src/agent_commands.rs:43-47`  
+**Symptom:** Second lock creates shadow variable, immediately dropped. Waste of CPU cycles.  
+**Fix:** Remove the second lock; the first `agents_guard` is already held.
 
-### L3. Missing Error Boundaries
+### M-03: Ghostty type declarations (`ghostty-web.d.ts`) — duplicate `onResize`, wrong API
 
-**Location:** `main.tsx`
-**Issue:** No React error boundary — a single JS error crashes the entire app UI.
+**File:** `web/src/types/ghostty-web.d.ts`  
+**Symptom:** `onResize` declared twice. The type definitions are hand-written and don't match the actual `ghostty-web` package exports.  
+**Fix:** Replace with `npm` package's `dist/index.d.ts` or remove hand-written types (the package provides its own types).
 
----
+### M-04: `LayoutTree::split()` — Split node gets `id: 0` in JSON serialization
 
-## 📊 Summary
+**File:** `splatter-core/src/layout/mod.rs:290`  
+**Symptom:** Split nodes always have `id: 0` in the JSON sent to frontend. Frontend may expect unique IDs.  
+**Fix:** Generate unique IDs for split nodes too.
 
-| Category | Count | Impact |
-|----------|-------|--------|
-| 🔴 Critical (C) | 4 | Core functionality broken |
-| 🟠 High (H) | 5 | Major feature gaps |
-| 🟡 Medium (M) | 6 | UX/Quality issues |
-| 🔵 Low (L) | 3 | Code hygiene |
-| **Total** | **18** | |
+### M-05: `LayoutTree::split()` — Split arm extracts `left.get_agent()` for right child
 
-**Estimated Fix Time:** 2–3 days (focused sprints)
+**File:** `splatter-core/src/layout/mod.rs:208`  
+**Symptom:** When splitting a split node, the right child gets the left child's agent_id. This is a copy-paste bug — `right.get_agent()` was intended.  
+**Fix:** Change `left.get_agent()` → `right.get_agent()`.
 
 ---
 
-## 🏗️ Recommended Fix Phases
+## 🔵 Low (3)
 
-### Phase 1: Layout Bridge (Day 1 AM)
+### L-01: Duplicate `listen("layout-changed")` registrations
 
-- Fix `get_layout()` to return proper BSP tree
-- Sync frontend layout with backend LayoutTree
+**File:** `web/src/App.tsx`, `web/src/components/Layout.tsx`  
+**Symptom:** Both files register a `layout-changed` listener. Each causes a `get_layout` fetch. Double IPC calls on every layout change.  
+**Fix:** Keep it in one place (preferably App.tsx only).
 
-### Phase 2: Ghostty WASM Loading (Day 1 PM)  
+### L-02: No Tauri icons in bundle config
 
-- Fix WASM path resolution for production Tauri
-- Test in both dev and release modes
+**File:** `splatter-core/src-tauri/tauri.conf.json`  
+**Symptom:** `"icon": []` — app has no tray/window icons.  
+**Fix:** Add icon paths to the bundle config.
 
-### Phase 3: Ghostty Input/Output (Day 2 AM)
+### L-03: `GhosttyTerminal.tsx` — listen cleanup returns a promise-wrapped dispose
 
-- Fix `writeInput` to use `term.input()`
-- Clarify `onData` ↔ PTY flow
-- Fix focus behavior
+**File:** `web/src/components/Ghostty/GhosttyTerminal.tsx:60-63`  
+**Symptom:** `listen()` returns a promise. The cleanup function is `unsubPromise.then(unsub => unsub)`, which works but creates an unnecessary promise chain. If the component unmounts before the promise resolves, the dispose never runs.  
+**Fix:** Use `.then()` properly or switch to the `once` pattern.
 
-### Phase 4: Layout Store Cleanup (Day 2 PM)
+---
 
-- Fix duplicate node IDs
-- Remove `splitPane()` from store (use Tauri `new_pane`/`split_pane`)
-- Remove commented-out code
+## File-by-File Summary
 
-### Phase 5: Build & Verify (Day 3)
+| File | Critical | High | Medium | Low |
+|------|----------|------|--------|-----|
+| `layout/mod.rs` | 3 | 2 | 2 | — |
+| `agent/mod.rs` | — | — | — | — |
+| `agent_commands.rs` | — | — | 2 | — |
+| `layout_commands.rs` | — | — | — | — |
+| `main.rs` | — | 1 | — | — |
+| `Settings.tsx` | — | 1 | — | — |
+| `useGhostty.ts` | — | 1 | — | — |
+| `Layout.tsx` | — | 1 | — | — |
+| `GhosttyTerminal.tsx` | — | — | — | 1 |
+| `App.tsx` | — | — | — | 1 |
+| `tray/mod.rs` | — | 1 | — | — |
+| `plugin/mod.rs` | — | 1 | — | — |
+| `ghostty-web.d.ts` | — | — | 1 | — |
+| `tauri.conf.json` | — | — | — | 1 |
+| **Total** | **3** | **7** | **5** | **3** |
 
-- Full release build
-- Desktop integration test
-- E2E validation
+---
+
+## What Works
+
+- ✅ Rust compiles (1 warning)
+- ✅ TypeScript compiles (0 errors)
+- ✅ 14 unit tests pass
+- ✅ Vite build succeeds
+- ✅ Ghostty WASM loads from `/ghostty-vt.wasm`
+- ✅ `GhosttyTerminal` renders DOM elements
+- ✅ Agent spawn → `new_pane` → `agent-spawned` event chain works (basic flow)
+- ✅ PTY read loop drains output every 50ms
+- ✅ Config load/save to TOML works
+- ✅ Agent list sidebar renders
+- ✅ Status bar shows working/done counts
+
+## What Doesn't Work
+
+- 🔴 Closing panes closes the wrong pane (CR-01)
+- 🔴 Layout node lookup by ID always returns None (CR-02)
+- 🔴 Splitting split nodes breaks tree structure (CR-03)
+- 🟠 Settings tabs all render at once (H-03)
+- 🟠 Arrow key / focus navigation does nothing (H-01, H-02)
+- 🟠 System tray always shows idle (H-06)
+- 🟠 Plugin disable shows as error state (H-07)
