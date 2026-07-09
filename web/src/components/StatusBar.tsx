@@ -4,8 +4,11 @@
 
 import { useAgentStore } from "@/stores/agentStore";
 import { useLayoutStore } from "@/stores/layoutStore";
+import { useState } from "react";
+import { Settings } from "./Settings";
 
 export function StatusBar() {
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	const agents = useAgentStore((s) => s.agents);
 	const focusedNodeId = useLayoutStore((s) => s.focusedNodeId);
 	const panes = useLayoutStore((s) => s.panes);
@@ -33,8 +36,18 @@ export function StatusBar() {
 			{/* Right side */}
 			<div className="flex items-center gap-4">
 				{focusedNodeId && <span>Pane {focusedNodeId}</span>}
+				<button
+					onClick={() => setSettingsOpen(true)}
+					className="hover:text-white"
+					title="Settings"
+				>
+					⚙
+				</button>
 				<span>Splatter v0.1.0</span>
 			</div>
+			
+			{/* Settings Modal */}
+			<Settings visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
 		</div>
 	);
 }

@@ -16,11 +16,21 @@ pub struct Rect {
 
 impl Rect {
     pub fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn full_screen() -> Self {
-        Self { x: 0, y: 0, width: 1920, height: 1080 }
+        Self {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        }
     }
 }
 
@@ -37,8 +47,16 @@ pub struct Pane {
 /// A node in the BSP layout tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LayoutNode {
-    Leaf { id: NodeId, pane: Pane },
-    Split { direction: SplitDirection, ratio: f64, left: Box<LayoutNode>, right: Box<LayoutNode> },
+    Leaf {
+        id: NodeId,
+        pane: Pane,
+    },
+    Split {
+        direction: SplitDirection,
+        ratio: f64,
+        left: Box<LayoutNode>,
+        right: Box<LayoutNode>,
+    },
 }
 
 impl LayoutNode {
@@ -127,7 +145,10 @@ impl LayoutTree {
         Self {
             nodes: vec![LayoutNode::Leaf {
                 id: 1,
-                pane: Pane { agent_id: None, rect: Rect::full_screen() },
+                pane: Pane {
+                    agent_id: None,
+                    rect: Rect::full_screen(),
+                },
             }],
             next_id: 2,
         }
@@ -148,24 +169,40 @@ impl LayoutTree {
                     let split_x = (current_rect.width as f64 * ratio) as u32;
                     (
                         Rect::new(current_rect.x, current_rect.y, split_x, current_rect.height),
-                        Rect::new(current_rect.x + split_x as i32, current_rect.y, current_rect.width - split_x, current_rect.height),
+                        Rect::new(
+                            current_rect.x + split_x as i32,
+                            current_rect.y,
+                            current_rect.width - split_x,
+                            current_rect.height,
+                        ),
                     )
                 }
                 SplitDirection::Horizontal => {
                     let split_y = (current_rect.height as f64 * ratio) as u32;
                     (
                         Rect::new(current_rect.x, current_rect.y, current_rect.width, split_y),
-                        Rect::new(current_rect.x, current_rect.y + split_y as i32, current_rect.width, current_rect.height - split_y),
+                        Rect::new(
+                            current_rect.x,
+                            current_rect.y + split_y as i32,
+                            current_rect.width,
+                            current_rect.height - split_y,
+                        ),
                     )
                 }
             };
 
-            *pane = Pane { agent_id: pane.agent_id.clone(), rect: left_rect };
+            *pane = Pane {
+                agent_id: pane.agent_id.clone(),
+                rect: left_rect,
+            };
             *id = current_id;
 
             self.nodes.push(LayoutNode::Leaf {
                 id: new_id,
-                pane: Pane { agent_id: None, rect: right_rect },
+                pane: Pane {
+                    agent_id: None,
+                    rect: right_rect,
+                },
             });
 
             return new_id;
@@ -204,7 +241,8 @@ impl LayoutTree {
 
     /// Get all leaf IDs.
     pub fn leaf_ids(&self) -> Vec<NodeId> {
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .filter_map(|n| match n {
                 LayoutNode::Leaf { id, .. } => Some(*id),
                 _ => None,
@@ -213,14 +251,19 @@ impl LayoutTree {
     }
 
     /// Get a specific node.
-    pub fn get_node(&self, _id: NodeId) -> Option<&LayoutNode> { None }
+    pub fn get_node(&self, _id: NodeId) -> Option<&LayoutNode> {
+        None
+    }
 
     /// Get a specific node (mutable).
-    pub fn get_node_mut(&mut self, _id: NodeId) -> Option<&mut LayoutNode> { None }
+    pub fn get_node_mut(&mut self, _id: NodeId) -> Option<&mut LayoutNode> {
+        None
+    }
 
     /// Get all leaves.
     pub fn leaves(&self) -> Vec<(&NodeId, &Pane)> {
-        self.nodes.iter()
+        self.nodes
+            .iter()
             .filter_map(|n| match n {
                 LayoutNode::Leaf { id, pane } => Some((id, pane)),
                 _ => None,
@@ -229,19 +272,29 @@ impl LayoutTree {
     }
 
     /// Get all leaf node IDs.
-    pub fn leaf_nodes(&self) -> Vec<NodeId> { self.leaf_ids() }
+    pub fn leaf_nodes(&self) -> Vec<NodeId> {
+        self.leaf_ids()
+    }
 
     /// Get the focused node.
-    pub fn focused_node(&self) -> Option<&LayoutNode> { self.nodes.last() }
+    pub fn focused_node(&self) -> Option<&LayoutNode> {
+        self.nodes.last()
+    }
 
     /// Get the focused node (mutable).
-    pub fn focused_node_mut(&mut self) -> Option<&mut LayoutNode> { self.nodes.last_mut() }
+    pub fn focused_node_mut(&mut self) -> Option<&mut LayoutNode> {
+        self.nodes.last_mut()
+    }
 
     /// Find the next leaf in a direction.
-    fn next_in_direction(&self, _id: NodeId, _direction: FocusDirection) -> Option<NodeId> { None }
+    fn next_in_direction(&self, _id: NodeId, _direction: FocusDirection) -> Option<NodeId> {
+        None
+    }
 
     /// Get the layout as a tree structure (for serialization).
-    pub fn to_tree(&self) -> Option<LayoutNode> { self.nodes.first().cloned() }
+    pub fn to_tree(&self) -> Option<LayoutNode> {
+        self.nodes.first().cloned()
+    }
 
     /// Set a custom tree (from preset or loaded state).
     pub fn set_tree(&mut self, tree: LayoutNode) {
@@ -279,14 +332,20 @@ impl LayoutTree {
         self.next_id += 1;
         self.nodes.push(LayoutNode::Leaf {
             id,
-            pane: Pane { agent_id: None, rect: Rect::full_screen() },
+            pane: Pane {
+                agent_id: None,
+                rect: Rect::full_screen(),
+            },
         });
         id
     }
 
     /// Get a preset layout.
     pub fn preset(name: &str) -> Option<Self> {
-        match name { "default" => Some(Self::new()), _ => None }
+        match name {
+            "default" => Some(Self::new()),
+            _ => None,
+        }
     }
 }
 

@@ -31,7 +31,12 @@ impl TrayStatus {
     pub fn tooltip(&self) -> String {
         match self {
             TrayStatus::Idle => "Splatter: 0 agents".to_string(),
-            TrayStatus::Active { working, done, blocked, error } => {
+            TrayStatus::Active {
+                working,
+                done,
+                blocked,
+                error,
+            } => {
                 format!(
                     "Splatter: {} working · {} done · {} blocked · {} error",
                     working, done, blocked, error

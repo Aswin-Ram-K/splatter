@@ -3,6 +3,7 @@
  */
 
 import { create } from 'zustand';
+import { invoke } from '@tauri-apps/api/core';
 import type { AppSettings, TrayStatus } from '@/types';
 
 interface SettingsStore {
@@ -13,6 +14,7 @@ interface SettingsStore {
   updateSettings: (updates: Partial<AppSettings>) => void;
   updateTrayStatus: (status: TrayStatus) => void;
   toggleNotifications: () => void;
+  loadSettings: () => void;
 }
 
 const defaultSettings: AppSettings = {
@@ -76,4 +78,14 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
     const enabled = !state.notificationsEnabled;
     return { notificationsEnabled: enabled };
   }),
+
+  loadSettings: () => {
+    invoke<any>('get_config')
+      .then((config: any) => {
+        if (config.settings) {
+          set({ settings: config.settings });
+        }
+      })
+      .catch(console.error);
+  },
 }));

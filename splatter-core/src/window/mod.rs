@@ -27,9 +27,7 @@ impl Default for WindowManager {
 
 impl WindowManager {
     pub fn new() -> Self {
-        Self {
-            states: Vec::new(),
-        }
+        Self { states: Vec::new() }
     }
 
     pub fn save(&mut self, state: WindowState) {

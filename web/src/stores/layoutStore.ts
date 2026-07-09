@@ -34,9 +34,9 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
 	panes: new Map(),
 	sidebarVisible: true,
 
-setRoot: (node) => set({ root: node }),
+	setRoot: (node) => set({ root: node }),
 
-splitPane: (direction, ratio) => {
+	splitPane: (direction, ratio) => {
 		const state = get();
 		if (!state.focusedNodeId) return 0;
 
@@ -76,13 +76,13 @@ splitPane: (direction, ratio) => {
 						y: currentRect.y,
 						width: Math.floor(currentRect.width * ratio),
 						height: currentRect.height,
-				}
+					}
 				: {
 						x: currentRect.x,
 						y: currentRect.y,
 						width: currentRect.width,
 						height: Math.floor(currentRect.height * ratio),
-				};
+					};
 
 		const splitNodeId = Date.now();
 		const rightNodeId = Date.now() + 1;
@@ -117,15 +117,15 @@ splitPane: (direction, ratio) => {
 			});
 		}
 
-			// Create a new pane with an agent via new_pane
-			invoke<string>("new_pane", { profile_id: "pi-agent" })
-				.then((agent_id: string) => {
-					// Associate agent with the new pane
-					useLayoutStore.getState().setPaneAgent(rightNodeId, agent_id);
-				})
-				.catch((err: unknown) => {
-					console.error("Failed to create pane:", err);
-				});
+		// Create a new pane with an agent via new_pane
+		invoke<string>("new_pane", { profile_id: "pi-agent" })
+			.then((agent_id: string) => {
+				// Associate agent with the new pane
+				useLayoutStore.getState().setPaneAgent(rightNodeId, agent_id);
+			})
+			.catch((err: unknown) => {
+				console.error("Failed to create pane:", err);
+			});
 
 		return rightNodeId;
 	},

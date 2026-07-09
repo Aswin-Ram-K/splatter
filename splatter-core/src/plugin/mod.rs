@@ -14,9 +14,9 @@ pub struct PluginManifest {
     pub version: String,
     pub author: String,
     pub description: String,
-    pub entry: String,        // JS file path relative to plugin dir
+    pub entry: String, // JS file path relative to plugin dir
     pub permissions: Vec<String>,
-    pub api: String,          // API version (e.g., "1.0.0")
+    pub api: String, // API version (e.g., "1.0.0")
     pub scripts: PluginScripts,
 }
 
@@ -97,7 +97,11 @@ impl PluginHost {
         };
 
         self.plugins.insert(
-            plugin_path.file_stem().unwrap().to_string_lossy().to_string(),
+            plugin_path
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
             instance,
         );
 

@@ -39,9 +39,11 @@ export function Layout({ className = "" }: LayoutProps) {
 			// Listen for layout-changed events
 			const { listen } = await import("@tauri-apps/api/event");
 			listen("layout-changed", () => {
-				invoke<any>("get_layout").then((layout: any) => {
-					useLayoutStore.getState().setRoot(layout);
-				}).catch(console.error);
+				invoke<any>("get_layout")
+					.then((layout: any) => {
+						useLayoutStore.getState().setRoot(layout);
+					})
+					.catch(console.error);
 			});
 		})();
 	}, []);
