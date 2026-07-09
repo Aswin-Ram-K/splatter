@@ -1,129 +1,152 @@
 /**
  * Hook for managing a Ghostty terminal instance.
- * Note: ghostty-web WASM is loaded dynamically at runtime.
+ * Uses real ghostty-web WASM with xterm-compatible API.
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from 'react';
+import { init, Terminal, type ITerminalOptions } from 'ghostty-web';
 
-interface UseGhosttyOptions {
-	cols: number;
-	rows: number;
-	agentId?: string;
-	onOutput?: (data: Uint8Array) => void;
-	onError?: (error: string) => void;
-	onResize?: (cols: number, rows: number) => void;
-}
-
-interface GhosttyTerminal {
-	open(container: HTMLElement): void;
-	write(data: string | Uint8Array): void;
-	resize(cols: number, rows: number): void;
-	onData(callback: (data: string) => void): void;
-	onResize(callback: (resize: { cols: number; rows: number }) => void): void;
-	onScroll(callback: (position: number) => void): void;
-	dispose(): void;
-}
-
-// Dynamic import type (loaded at runtime from ghostty-web WASM)
-declare global {
-	interface Window {
-		GhosttyTerminal?: new (opts: {
-			cols: number;
-			rows: number;
-			scrollback: number;
-			fontSize: number;
-			fontFamily: string;
-			theme: Record<string, string>;
-		}) => GhosttyTerminal;
-	}
+export interface UseGhosttyOptions {
+  cols: number;
+  rows: number;
+  agentId?: string;
+  onOutput?: (data: Uint8Array) => void;
+  onError?: (error: string) => void;
+  onResize?: (cols: number, rows: number) => void;
 }
 
 export function useGhostty({
-	cols,
-	rows,
-	onOutput,
-	onError,
-	onResize,
+  cols,
+  rows,
+  onOutput,
+  onError,
+  onResize,
 }: UseGhosttyOptions) {
-	const containerRef = useRef<HTMLDivElement>(null);
-	const terminalRef = useRef<GhosttyTerminal | null>(null);
-	const initializedRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const initializedRef = useRef(false);
 
-	// Initialize Ghostty terminal
-	useEffect(() => {
-		if (initializedRef.current || !containerRef.current) return;
+  // Initialize Ghostty terminal
+  useEffect(() => {
+    if (initializedRef.current || !containerRef.current) return;
 
-		let term: GhosttyTerminal | null = null;
+    let term: Terminal;
 
-		(async () => {
-			try {
-				// In production, this would import from 'ghostty-web'
-				// For now, use a placeholder that creates a simple terminal-like object
-				const termDiv = containerRef.current;
-				termDiv!.style.backgroundColor = "#1a1b26";
-				termDiv!.style.color = "#a9b1d6";
-				termDiv!.style.fontFamily = "JetBrains Mono, monospace";
-				termDiv!.style.fontSize = "15px";
-				termDiv!.style.padding = "4px";
-				termDiv!.style.overflow = "hidden";
-				termDiv!.style.whiteSpace = "pre";
-				termDiv!.style.fontVariantLigatures = "none";
-				termDiv!.style.tabSize = "0";
+    (async () => {
+      try {
+        // Initialize WASM (idempotent — safe to call multiple times)
+        await init();
 
-				// Create a simple terminal mock for development
-				term = {
-					open: () => {},
-					write: (data: string | Uint8Array) => {
-						if (typeof data === "string") {
-							const span = document.createElement("span");
-							span.textContent = data;
-							termDiv!.appendChild(span);
-						}
-					},
-					resize: (_c: number, _r: number) => {},
-					onData: (_callback: (data: string) => void) => () => {},
-					onResize: (
-						callback: (resize: { cols: number; rows: number }) => void,
-					) => {
-						callback({ cols, rows });
-					},
-					onScroll: (_callback: (position: number) => void) => {},
-					dispose: () => {},
-				} as unknown as GhosttyTerminal;
+        // Terminal options matching our Dark theme
+        const options: ITerminalOptions = {
+          cols,
+          rows,
+          scrollback: 10000,
+          cursorBlink: true,
+          cursorStyle: 'block',
+          fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+          fontSize: 15,
+          theme: {
+            background: '#1a1b26',
+            foreground: '#a9b1d6',
+            cursor: '#c0caf5',
+            selectionBackground: '#3b4261',
+            black: '#32344a',
+            red: '#f7768e',
+            green: '#9ece6a',
+            yellow: '#e0af68',
+            blue: '#7aa2f7',
+            magenta: '#bb9af7',
+            cyan: '#7dcfff',
+            white: '#a9b1d6',
+            brightBlack: '#44466a',
+            brightRed: '#ff7a93',
+            brightGreen: '#b9f27c',
+            brightYellow: '#ff9e64',
+            brightBlue: '#7da6ff',
+            brightMagenta: '#c0a3e3',
+            brightCyan: '#0dbbd1',
+            brightWhite: '#acb0d0',
+          },
+        };
 
-				terminalRef.current = term;
-				initializedRef.current = true;
+        term = new Terminal(options);
+        if (containerRef.current) {
+          term.open(containerRef.current);
+        }
+        termRef.current = term;
+        initializedRef.current = true;
 
-				// Trigger onResize callback
-				if (onResize) {
-					onResize(cols, rows);
-				}
-			} catch (err) {
-				if (onError) onError(err instanceof Error ? err.message : String(err));
-			}
-		})();
+        // Listen for terminal input → forward to PTY
+        term.onData((data: string) => {
+          if (onOutput) {
+            onOutput(new TextEncoder().encode(data));
+          }
+        });
 
-		return () => {
-			// Dispose on unmount
-			if (terminalRef.current) {
-				terminalRef.current.dispose();
-				terminalRef.current = null;
-			}
-			initializedRef.current = false;
-		};
-	}, [cols, rows, onOutput, onError, onResize]);
+        // Report initial size
+        if (onResize) {
+          onResize(term.cols, term.rows);
+        }
 
-	// Write output to terminal (called by PTY read loop)
-	const writeOutput = useCallback((data: Uint8Array) => {
-		if (terminalRef.current && containerRef.current) {
-			terminalRef.current.write(data);
-		}
-	}, []);
+        // Listen for terminal resize events
+        term.onResize((resize) => {
+          if (onResize) {
+            onResize(resize.cols, resize.rows);
+          }
+        });
 
-	// Write input to terminal (user typing)
-	const writeInput = useCallback((_data: Uint8Array) => {
-		// Would send input to PTY in production
-	}, []);
+        // Notify parent that terminal is ready
+        console.log(
+          '[Ghostty] Terminal initialized:',
+          `${term.cols}x${term.rows}`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[Ghostty] Init failed:', msg);
+        if (onError) onError(msg);
+      }
+    })();
 
-	return { writeOutput, writeInput };
+    return () => {
+      // Dispose on unmount
+      if (termRef.current) {
+        termRef.current.dispose();
+        termRef.current = null;
+      }
+      initializedRef.current = false;
+    };
+  }, []);
+
+  // Write output to terminal (called by PTY read loop)
+  const writeOutput = useCallback(
+    (data: Uint8Array) => {
+      if (termRef.current) {
+        termRef.current.write(data);
+      }
+    },
+    [],
+  );
+
+  // Resize terminal
+  const resize = useCallback(
+    (newCols: number, newRows: number) => {
+      if (termRef.current) {
+        termRef.current.resize(newCols, newRows);
+      }
+    },
+    [],
+  );
+
+  // Write input to terminal (user typing — wrapper for onData)
+  const writeInput = useCallback(
+    (data: Uint8Array) => {
+      if (termRef.current) {
+        termRef.current.write(data);
+      }
+    },
+    [],
+  );
+
+  return { writeOutput, writeInput, resize, containerRef };
 }

@@ -47,14 +47,12 @@ function renderNode(
 		if (!pane) return null;
 
 		const agentId = pane.agentId;
-		const agent = agentId ? agents.get(agentId) : null;
 
 		return (
 			<GhosttyTerminal
 				key={node.id}
 				paneId={node.id}
 				agentId={agentId}
-				agentState={agent}
 				rect={pane.rect}
 				isFocused={focusedNodeId === node.id}
 				onAgentSelect={(id) => setFocusedAgent(id)}
