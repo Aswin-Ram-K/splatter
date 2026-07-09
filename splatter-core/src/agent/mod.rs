@@ -211,7 +211,7 @@ impl Session {
         let child_pid = Self::spawn_child(profile, slave_fd)?;
 
         // Close slave FD in parent (keep only in child)
-        unsafe { nix::unistd::close(slave_fd) }?;
+        nix::unistd::close(slave_fd)?;
 
         let mut session = Self {
             id,

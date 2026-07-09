@@ -66,7 +66,13 @@ export function Layout({ className = "" }: LayoutProps) {
 
 function renderNode(
 	node: LayoutNode,
-	panes: Map<number, { rect: { x: number; y: number; width: number; height: number }; agentId?: string }>,
+	panes: Map<
+		number,
+		{
+			rect: { x: number; y: number; width: number; height: number };
+			agentId?: string;
+		}
+	>,
 	agents: Map<string, any>,
 	setFocusedAgent: (id: string | null) => void,
 ): React.ReactNode {
@@ -99,7 +105,11 @@ function renderNode(
 				{node.left && renderNode(node.left, panes, agents, setFocusedAgent)}
 				<div
 					className="bg-gray-700/30"
-					style={isVertical ? { width: "1px", height: "100%" } : { width: "1px", height: "100%" }}
+					style={
+						isVertical
+							? { width: "1px", height: "100%" }
+							: { width: "1px", height: "100%" }
+					}
 				/>
 				{node.right && renderNode(node.right, panes, agents, setFocusedAgent)}
 			</div>

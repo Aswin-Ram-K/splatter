@@ -150,25 +150,33 @@ impl HotkeyRegistry {
     }
 }
 
+#[allow(dead_code)]
 impl HotkeyConfig {
+    #[allow(dead_code)]
     fn nav_nav_prev_pane(s: &Self) -> Hotkey {
         parse_hotkey(&s.nav_prev_pane)
     }
+    #[allow(dead_code)]
     fn nav_next_pane(s: &Self) -> Hotkey {
         parse_hotkey(&s.nav_next_pane)
     }
+    #[allow(dead_code)]
     fn nav_cycle_pane(s: &Self) -> Hotkey {
         parse_hotkey(&s.nav_cycle_pane)
     }
+    #[allow(dead_code)]
     fn nav_focus_left(s: &Self) -> Hotkey {
         parse_hotkey(&s.nav_focus_left)
     }
+    #[allow(dead_code)]
     fn nav_focus_down(s: &Self) -> Hotkey {
         parse_hotkey(&s.nav_focus_down)
     }
+    #[allow(dead_code)]
     fn nav_focus_up(s: &Self) -> Hotkey {
         parse_hotkey(&s.nav_focus_up)
     }
+    #[allow(dead_code)]
     fn nav_focus_right(s: &Self) -> Hotkey {
         parse_hotkey(&s.nav_focus_right)
     }

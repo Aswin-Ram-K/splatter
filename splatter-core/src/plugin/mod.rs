@@ -79,7 +79,7 @@ impl PluginHost {
     }
 
     /// Load a single plugin from a directory.
-    fn load_plugin(&mut self, plugin_path: &PathBuf) -> Result<(), String> {
+    fn load_plugin(&mut self, plugin_path: &std::path::Path) -> Result<(), String> {
         let manifest_path = plugin_path.join("plugin.yaml");
         if !manifest_path.exists() {
             return Err("No plugin.yaml found".to_string());

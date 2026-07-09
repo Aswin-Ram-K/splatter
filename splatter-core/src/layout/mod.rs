@@ -176,24 +176,51 @@ impl LayoutTree {
                         let split_x = (current_rect.width as f64 * ratio) as u32;
                         (
                             Rect::new(current_rect.x, current_rect.y, split_x, current_rect.height),
-                            Rect::new(current_rect.x + split_x as i32, current_rect.y, current_rect.width - split_x, current_rect.height),
+                            Rect::new(
+                                current_rect.x + split_x as i32,
+                                current_rect.y,
+                                current_rect.width - split_x,
+                                current_rect.height,
+                            ),
                         )
                     }
                     SplitDirection::Horizontal => {
                         let split_y = (current_rect.height as f64 * ratio) as u32;
                         (
                             Rect::new(current_rect.x, current_rect.y, current_rect.width, split_y),
-                            Rect::new(current_rect.x, current_rect.y + split_y as i32, current_rect.width, current_rect.height - split_y),
+                            Rect::new(
+                                current_rect.x,
+                                current_rect.y + split_y as i32,
+                                current_rect.width,
+                                current_rect.height - split_y,
+                            ),
                         )
                     }
                 };
                 (
-                    LayoutNode::Leaf { id, pane: Pane { agent_id: pane.agent_id.clone(), rect: left_rect } },
-                    LayoutNode::Leaf { id: new_id, pane: Pane { agent_id: None, rect: right_rect } },
+                    LayoutNode::Leaf {
+                        id,
+                        pane: Pane {
+                            agent_id: pane.agent_id.clone(),
+                            rect: left_rect,
+                        },
+                    },
+                    LayoutNode::Leaf {
+                        id: new_id,
+                        pane: Pane {
+                            agent_id: None,
+                            rect: right_rect,
+                        },
+                    },
                     new_id,
                 )
             }
-            Some(LayoutNode::Split { direction: _, ratio: _, left, right }) => {
+            Some(LayoutNode::Split {
+                direction: _,
+                ratio: _,
+                left,
+                right,
+            }) => {
                 let new_id = self.next_id;
                 self.next_id += 1;
                 let current_rect = left.leaf_rect().unwrap_or_else(Rect::full_screen);
@@ -202,20 +229,42 @@ impl LayoutTree {
                         let split_x = (current_rect.width as f64 * ratio) as u32;
                         (
                             Rect::new(current_rect.x, current_rect.y, split_x, current_rect.height),
-                            Rect::new(current_rect.x + split_x as i32, current_rect.y, current_rect.width - split_x, current_rect.height),
+                            Rect::new(
+                                current_rect.x + split_x as i32,
+                                current_rect.y,
+                                current_rect.width - split_x,
+                                current_rect.height,
+                            ),
                         )
                     }
                     SplitDirection::Horizontal => {
                         let split_y = (current_rect.height as f64 * ratio) as u32;
                         (
                             Rect::new(current_rect.x, current_rect.y, current_rect.width, split_y),
-                            Rect::new(current_rect.x, current_rect.y + split_y as i32, current_rect.width, current_rect.height - split_y),
+                            Rect::new(
+                                current_rect.x,
+                                current_rect.y + split_y as i32,
+                                current_rect.width,
+                                current_rect.height - split_y,
+                            ),
                         )
                     }
                 };
                 (
-                    LayoutNode::Leaf { id: *left.id(), pane: Pane { agent_id: left.get_agent(), rect: left_rect } },
-                    LayoutNode::Leaf { id: new_id, pane: Pane { agent_id: right.get_agent(), rect: right_rect } },
+                    LayoutNode::Leaf {
+                        id: *left.id(),
+                        pane: Pane {
+                            agent_id: left.get_agent(),
+                            rect: left_rect,
+                        },
+                    },
+                    LayoutNode::Leaf {
+                        id: new_id,
+                        pane: Pane {
+                            agent_id: right.get_agent(),
+                            rect: right_rect,
+                        },
+                    },
                     new_id,
                 )
             }
@@ -310,6 +359,7 @@ impl LayoutTree {
     }
 
     /// Find the next leaf in a direction.
+    #[allow(dead_code)]
     fn next_in_direction(&self, _id: NodeId, _direction: FocusDirection) -> Option<NodeId> {
         None
     }
@@ -321,7 +371,10 @@ impl LayoutTree {
 
     /// Convert the layout tree to a JSON value for the frontend.
     pub fn to_json(&self) -> serde_json::Value {
-        self.nodes.first().map(json_serialize_node).unwrap_or_else(|| serde_json::json!(null))
+        self.nodes
+            .first()
+            .map(json_serialize_node)
+            .unwrap_or_else(|| serde_json::json!(null))
     }
 
     /// Set a custom tree (from preset or loaded state).
@@ -386,7 +439,12 @@ pub fn json_serialize_node(node: &LayoutNode) -> serde_json::Value {
             "rect": { "x": pane.rect.x, "y": pane.rect.y, "width": pane.rect.width, "height": pane.rect.height },
             "agent_id": pane.agent_id,
         }),
-        LayoutNode::Split { direction, ratio, left, right } => {
+        LayoutNode::Split {
+            direction,
+            ratio,
+            left,
+            right,
+        } => {
             let dir_str = match direction {
                 SplitDirection::Horizontal => "horizontal",
                 SplitDirection::Vertical => "vertical",

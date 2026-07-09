@@ -51,7 +51,11 @@ export function Settings({ visible, onClose }: SettingsProps) {
 				{/* Header */}
 				<div className="flex items-center justify-between p-4 border-b border-gray-700">
 					<h2 className="text-lg font-semibold text-white">Settings</h2>
-					<button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
+					<button
+						type="button"
+						onClick={onClose}
+						className="text-gray-400 hover:text-white"
+					>
 						✕
 					</button>
 				</div>

@@ -23,7 +23,11 @@ export function GhosttyTerminal({
 }: GhosttyTerminalProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 
-	const { writeOutput, resize, containerRef: termRef } = useGhostty({
+	const {
+		writeOutput,
+		resize,
+		containerRef: termRef,
+	} = useGhostty({
 		cols: Math.max(10, Math.floor(rect.width / 8)),
 		rows: Math.max(3, Math.floor(rect.height / 16)),
 		agentId,
