@@ -18,7 +18,6 @@ export function Settings({ visible, onClose }: SettingsProps) {
 
 	useEffect(() => {
 		if (visible) {
-			// Load settings from Tauri backend
 			invoke<any>("get_config")
 				.then((config: any) => {
 					updateSettings(config.settings || {});
@@ -52,7 +51,7 @@ export function Settings({ visible, onClose }: SettingsProps) {
 				{/* Header */}
 				<div className="flex items-center justify-between p-4 border-b border-gray-700">
 					<h2 className="text-lg font-semibold text-white">Settings</h2>
-					<button onClick={onClose} className="text-gray-400 hover:text-white">
+					<button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
 						✕
 					</button>
 				</div>
@@ -63,6 +62,7 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						(tab) => (
 							<button
 								key={tab}
+								type="button"
 								className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white border-b-2 border-transparent hover:border-blue-500"
 							>
 								{tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -141,11 +141,6 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
-					{/* Plugins Section }*
-						<SettingsSection title="Plugins">
-							<PluginList />
-						</SettingsSection>
-
 					{/* Agent Settings */}
 					<SettingsSection title="Agents">
 						<SettingsInput
@@ -188,11 +183,6 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
-					{/* Plugins Section }*
-						<SettingsSection title="Plugins">
-							<PluginList />
-						</SettingsSection>
-
 					{/* Notification Settings */}
 					<SettingsSection title="Notifications">
 						<SettingsToggle
@@ -234,50 +224,41 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
-					{/* Plugins Section }*
-						<SettingsSection title="Plugins">
-							<PluginList />
-						</SettingsSection>
-
-
 					{/* Plugins Section */}
 					<SettingsSection title="Plugins">
 						<PluginList />
 					</SettingsSection>
-				</div>
-				{/* Hotkey Settings */}
-				<SettingsSection title="Hotkeys">
-					{Object.entries(settings.hotkeys).map(([key, value]) => (
-						<SettingsInput
-							key={key}
-							label={key
-								.replace(/_/g, " ")
-								.replace(/\b\w/g, (l) => l.toUpperCase())}
-							value={value}
-							onChange={(v) =>
-								updateSettings({
-									hotkeys: { ...settings.hotkeys, [key]: v },
-								})
-							}
-						/>
-					))}
-				</SettingsSection>
 
-				{/* Plugins Section }*
-						<SettingsSection title="Plugins">
-							<PluginList />
-						</SettingsSection>
+					{/* Hotkey Settings */}
+					<SettingsSection title="Hotkeys">
+						{Object.entries(settings.hotkeys).map(([key, value]) => (
+							<SettingsInput
+								key={key}
+								label={key
+									.replace(/_/g, " ")
+									.replace(/\b\w/g, (l) => l.toUpperCase())}
+								value={value}
+								onChange={(v) =>
+									updateSettings({
+										hotkeys: { ...settings.hotkeys, [key]: v },
+									})
+								}
+							/>
+						))}
+					</SettingsSection>
 				</div>
 
 				{/* Footer */}
 				<div className="flex justify-end gap-2 p-4 border-t border-gray-700">
 					<button
+						type="button"
 						onClick={onClose}
 						className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white"
 					>
 						Cancel
 					</button>
 					<button
+						type="button"
 						onClick={saveSettings}
 						className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
 					>
@@ -341,6 +322,7 @@ function SettingsToggle({
 		<div className="flex items-center justify-between">
 			<label className="text-sm text-gray-300">{label}</label>
 			<button
+				type="button"
 				onClick={onChange}
 				className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
 					checked ? "bg-blue-600" : "bg-gray-600"

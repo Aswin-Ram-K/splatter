@@ -128,9 +128,8 @@ fn main() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+.invoke_handler(tauri::generate_handler![
             // Agent commands
-            agent_commands::spawn_agent,
             agent_commands::write_to_agent,
             agent_commands::get_agent_state,
             agent_commands::list_agents,

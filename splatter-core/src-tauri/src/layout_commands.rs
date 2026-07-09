@@ -119,19 +119,8 @@ pub async fn get_layout(app: tauri::AppHandle) -> Result<serde_json::Value, Stri
     let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
     let layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
-    // Return the layout as a JSON structure with leaf panes
-    let leaves = layout_guard.leaves();
-    let mut pane_data = Vec::new();
-    for (id, pane) in leaves {
-        pane_data.push(serde_json::json!({
-            "id": id,
-            "rect": pane.rect,
-            "agent_id": pane.agent_id,
-        }));
-    }
-
-    serde_json::to_value(pane_data)
-        .map_err(|e| e.to_string())
+    // Return the layout as a tree structure
+    Ok(layout_guard.to_json())
 }
 
 /// Set a layout preset.
@@ -141,13 +130,14 @@ pub async fn set_preset(
     name: String,
 ) -> Result<bool, String> {
     let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
-    let _layout_guard = layout.lock().map_err(|e| e.to_string())?;
+    let mut layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
     if let Some(preset) = LayoutTree::preset(&name) {
-        let _ = preset;
-        app.emit("layout-changed", &"preset".to_string())
-            .map_err(|e| e.to_string())?;
+        *layout_guard = preset;
     }
+
+    app.emit("layout-changed", &"preset".to_string())
+        .map_err(|e| e.to_string())?;
 
     Ok(true)
 }

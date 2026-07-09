@@ -6,153 +6,73 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type { LayoutNode } from "@/types";
 
-interface LayoutStore {
-	root: LayoutNode | null;
-	focusedNodeId: number | null;
-	panes: Map<number, Pane>;
-	sidebarVisible: boolean;
-
-	setRoot: (node: LayoutNode | null) => void;
-	splitPane: (direction: "vertical" | "horizontal", ratio: number) => number;
-	closePane: (nodeId?: number) => void;
-	focusPane: (nodeId: number) => void;
-	focusDirection: (direction: "left" | "right" | "up" | "down") => void;
-	toggleSidebar: () => void;
-	setPreset: (name: string) => void;
-	setPaneAgent: (paneId: number, agentId: string) => void;
-	getPane: (nodeId: number) => Pane | undefined;
-}
-
 interface Pane {
 	rect: { x: number; y: number; width: number; height: number };
 	agentId?: string;
 }
 
+interface LayoutStore {
+	root: LayoutNode;
+	focusedNodeId: number | null;
+	panes: Map<number, Pane>;
+	sidebarVisible: boolean;
+
+	setRoot: (node: LayoutNode) => void;
+	splitPane: (direction: "vertical" | "horizontal") => Promise<void>;
+	closePane: (nodeId?: number) => Promise<void>;
+	focusPane: (nodeId: number) => void;
+	focusDirection: (direction: "left" | "right" | "up" | "down") => void;
+	toggleSidebar: () => void;
+	setPaneAgent: (paneId: number, agentId: string) => void;
+	getPane: (nodeId: number) => Pane | undefined;
+}
+
 export const useLayoutStore = create<LayoutStore>((set, get) => ({
-	root: null,
-	focusedNodeId: null,
-	panes: new Map(),
+	root: { type: "leaf", id: 1, rect: { x: 0, y: 0, width: 1280, height: 720 } },
+	focusedNodeId: 1,
+	panes: new Map([[1, { rect: { x: 0, y: 0, width: 1280, height: 720 } }]]),
 	sidebarVisible: true,
 
-	setRoot: (node) => set({ root: node }),
-
-	splitPane: (direction, ratio) => {
-		const state = get();
-		if (!state.focusedNodeId) return 0;
-
-		// Create new split node
-		const leftPane = state.panes.get(state.focusedNodeId);
-		const currentRect = leftPane?.rect || {
-			x: 0,
-			y: 0,
-			width: 1280,
-			height: 720,
+	setRoot: (node) => {
+		// Extract all panes from the tree
+		const panes = new Map<number, Pane>();
+		const extractPanes = (n: LayoutNode) => {
+			if (n.type === "leaf" && n.rect) {
+				panes.set(n.id, { rect: n.rect, agentId: n.agent_id });
+			}
+			if (n.left) extractPanes(n.left);
+			if (n.right) extractPanes(n.right);
 		};
-
-		let newRightRect: { x: number; y: number; width: number; height: number };
-
-		if (direction === "vertical") {
-			const splitX = Math.floor(currentRect.width * ratio);
-			newRightRect = {
-				x: currentRect.x + splitX,
-				y: currentRect.y,
-				width: currentRect.width - splitX,
-				height: currentRect.height,
-			};
-		} else {
-			const splitY = Math.floor(currentRect.height * ratio);
-			newRightRect = {
-				x: currentRect.x,
-				y: currentRect.y + splitY,
-				width: currentRect.width,
-				height: currentRect.height - splitY,
-			};
-		}
-
-		const newLeftRect: typeof currentRect =
-			direction === "vertical"
-				? {
-						x: currentRect.x,
-						y: currentRect.y,
-						width: Math.floor(currentRect.width * ratio),
-						height: currentRect.height,
-					}
-				: {
-						x: currentRect.x,
-						y: currentRect.y,
-						width: currentRect.width,
-						height: Math.floor(currentRect.height * ratio),
-					};
-
-		const splitNodeId = Date.now();
-		const rightNodeId = Date.now() + 1;
-
-		const newSplit: LayoutNode = {
-			type: "split",
-			id: splitNodeId,
-			direction,
-			ratio,
-			left: {
-				type: "leaf",
-				id: rightNodeId,
-				rect: newLeftRect,
-			},
-			right: {
-				type: "leaf",
-				id: rightNodeId,
-				rect: newRightRect,
-			},
-		};
-
-		const newPanes = new Map(state.panes);
-		newPanes.set(rightNodeId, { rect: newLeftRect });
-		newPanes.set(rightNodeId, { rect: newRightRect });
-
-		if (state.root) {
-			// Replace focused leaf with split
-			set({
-				root: newSplit,
-				focusedNodeId: rightNodeId,
-				panes: newPanes,
-			});
-		}
-
-		// Create a new pane with an agent via new_pane
-		invoke<string>("new_pane", { profile_id: "pi-agent" })
-			.then((agent_id: string) => {
-				// Associate agent with the new pane
-				useLayoutStore.getState().setPaneAgent(rightNodeId, agent_id);
-			})
-			.catch((err: unknown) => {
-				console.error("Failed to create pane:", err);
-			});
-
-		return rightNodeId;
+		extractPanes(node);
+		const firstLeafId = panes.size > 0 ? Array.from(panes.keys())[0] : 1;
+		set({ root: node, panes, focusedNodeId: firstLeafId });
 	},
 
-	closePane: (nodeId) => {
+	splitPane: async (direction: "vertical" | "horizontal") => {
+		try {
+			await invoke<number>("split_pane", {
+				direction,
+				ratio: 0.5,
+			});
+		} catch (err) {
+			console.error("Failed to split pane:", err);
+		}
+	},
+
+	closePane: async (nodeId?: number) => {
 		const id = nodeId || get().focusedNodeId;
 		if (!id) return;
 
-		const state = get();
-		const panes = new Map(state.panes);
-		panes.delete(id);
-
-		// Update root
-		if (state.root) {
-			if (state.root.type === "leaf") {
-				// Can't close the only pane, just clear
-				set({ root: null, focusedNodeId: null, panes });
-				return;
+		try {
+			const result = await invoke<boolean>("close_pane", { node_id: id });
+			if (result) {
+				const layout = await invoke<LayoutNode | null>("get_layout");
+				if (layout) {
+					useLayoutStore.getState().setRoot(layout);
+				}
 			}
-			// Find and replace the node in the tree (simplified)
-			const newRoot = { ...state.root };
-			if (newRoot.left?.id === id) {
-				(newRoot as any).left = (newRoot as any).right;
-			} else {
-				(newRoot as any).right = (newRoot as any).left;
-			}
-			set({ root: newRoot, focusedNodeId: null, panes });
+		} catch (err) {
+			console.error("Failed to close pane:", err);
 		}
 	},
 
@@ -172,63 +92,6 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
 	},
 	toggleSidebar: () =>
 		set((state) => ({ sidebarVisible: !state.sidebarVisible })),
-	setPreset: (name) => {
-		if (name === "default" || name === "2x2") {
-			set({ root: null, focusedNodeId: null, panes: new Map() });
-		} else if (name === "horizontal-2") {
-			const splitNodeId = Date.now();
-			const rightNodeId = Date.now() + 1;
-			const newRoot: LayoutNode = {
-				type: "split",
-				id: splitNodeId,
-				direction: "vertical",
-				ratio: 0.5,
-				left: {
-					type: "leaf",
-					id: rightNodeId,
-					rect: { x: 0, y: 0, width: 640, height: 720 },
-				},
-				right: {
-					type: "leaf",
-					id: rightNodeId,
-					rect: { x: 640, y: 0, width: 640, height: 720 },
-				},
-			};
-			set({
-				root: newRoot,
-				focusedNodeId: rightNodeId,
-				panes: new Map([
-					[rightNodeId, { rect: { x: 0, y: 0, width: 640, height: 720 } }],
-				]),
-			});
-		} else if (name === "vertical-2") {
-			const splitNodeId = Date.now();
-			const rightNodeId = Date.now() + 1;
-			const newRoot: LayoutNode = {
-				type: "split",
-				id: splitNodeId,
-				direction: "horizontal",
-				ratio: 0.5,
-				left: {
-					type: "leaf",
-					id: rightNodeId,
-					rect: { x: 0, y: 0, width: 1280, height: 360 },
-				},
-				right: {
-					type: "leaf",
-					id: rightNodeId,
-					rect: { x: 0, y: 360, width: 1280, height: 360 },
-				},
-			};
-			set({
-				root: newRoot,
-				focusedNodeId: rightNodeId,
-				panes: new Map([
-					[rightNodeId, { rect: { x: 0, y: 0, width: 1280, height: 360 } }],
-				]),
-			});
-		}
-	},
 	setPaneAgent: (paneId, agentId) =>
 		set((state) => {
 			const panes = new Map(state.panes);

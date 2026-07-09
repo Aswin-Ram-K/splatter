@@ -10,6 +10,7 @@ export interface UseGhosttyOptions {
 	cols: number;
 	rows: number;
 	agentId?: string;
+	onInput?: (data: Uint8Array) => void;
 	onOutput?: (data: Uint8Array) => void;
 	onError?: (error: string) => void;
 	onResize?: (cols: number, rows: number) => void;
@@ -18,13 +19,14 @@ export interface UseGhosttyOptions {
 export function useGhostty({
 	cols,
 	rows,
-	onOutput,
+	onInput,
 	onError,
 	onResize,
 }: UseGhosttyOptions) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const termRef = useRef<Terminal | null>(null);
 	const initializedRef = useRef(false);
+	const resizeSentRef = useRef(false);
 
 	// Initialize Ghostty terminal
 	useEffect(() => {
@@ -80,8 +82,8 @@ export function useGhostty({
 
 				// Listen for terminal input → forward to PTY
 				term.onData((data: string) => {
-					if (onOutput) {
-						onOutput(new TextEncoder().encode(data));
+					if (onInput) {
+						onInput(new TextEncoder().encode(data));
 					}
 				});
 
@@ -90,18 +92,18 @@ export function useGhostty({
 					onResize(term.cols, term.rows);
 				}
 
-				// Listen for terminal resize events
 				term.onResize((resize) => {
-					if (onResize) {
+					// Only fire onResize for actual resize events (not initial)
+					if (resizeSentRef.current && onResize) {
 						onResize(resize.cols, resize.rows);
 					}
 				});
 
-				// Notify parent that terminal is ready
-				console.log(
-					"[Ghostty] Terminal initialized:",
-					`${term.cols}x${term.rows}`,
-				);
+				// Report initial size (single call)
+				if (onResize) {
+					resizeSentRef.current = true;
+					onResize(term.cols, term.rows);
+				}
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				console.error("[Ghostty] Init failed:", msg);
@@ -133,10 +135,12 @@ export function useGhostty({
 		}
 	}, []);
 
-	// Write input to terminal (user typing — wrapper for onData)
+	// Write input to terminal (user typing — forwarded to PTY)
 	const writeInput = useCallback((data: Uint8Array) => {
 		if (termRef.current) {
-			termRef.current.write(data);
+			// Convert bytes to string and use Ghostty's input() which triggers onData
+			const text = new TextDecoder().decode(data);
+			termRef.current.input(text, true);
 		}
 	}, []);
 

@@ -10,19 +10,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { useLayoutStore } from "@/stores/layoutStore";
 import { useAgentStore } from "@/stores/agentStore";
 import { GhosttyTerminal } from "./Ghostty/GhosttyTerminal";
+import type { LayoutNode } from "@/types";
 
 interface LayoutProps {
 	className?: string;
 }
 
-interface LayoutPane {
-	rect: { x: number; y: number; width: number; height: number };
-	agentId?: string;
-}
-
 export function Layout({ className = "" }: LayoutProps) {
 	const root = useLayoutStore((s) => s.root);
-	const panes = useLayoutStore((s) => s.panes);
 	const agents = useAgentStore((s) => s.agents);
 	const setFocusedAgent = useAgentStore((s) => s.setFocusedAgent);
 
@@ -30,8 +25,10 @@ export function Layout({ className = "" }: LayoutProps) {
 		// Fetch initial layout from Tauri backend
 		(async () => {
 			try {
-				const layout = await invoke<any>("get_layout");
-				useLayoutStore.getState().setRoot(layout);
+				const layout = await invoke<LayoutNode | null>("get_layout");
+				if (layout) {
+					useLayoutStore.getState().setRoot(layout as LayoutNode);
+				}
 			} catch (err) {
 				console.error("Failed to load layout:", err);
 			}
@@ -39,9 +36,11 @@ export function Layout({ className = "" }: LayoutProps) {
 			// Listen for layout-changed events
 			const { listen } = await import("@tauri-apps/api/event");
 			listen("layout-changed", () => {
-				invoke<any>("get_layout")
-					.then((layout: any) => {
-						useLayoutStore.getState().setRoot(layout);
+				invoke<LayoutNode | null>("get_layout")
+					.then((layout) => {
+						if (layout) {
+							useLayoutStore.getState().setRoot(layout);
+						}
 					})
 					.catch(console.error);
 			});
@@ -61,12 +60,13 @@ export function Layout({ className = "" }: LayoutProps) {
 		);
 	}
 
+	const panes = useLayoutStore.getState().panes;
 	return renderNode(root, panes, agents, setFocusedAgent);
 }
 
 function renderNode(
-	node: any,
-	panes: Map<number, LayoutPane>,
+	node: LayoutNode,
+	panes: Map<number, { rect: { x: number; y: number; width: number; height: number }; agentId?: string }>,
 	agents: Map<string, any>,
 	setFocusedAgent: (id: string | null) => void,
 ): React.ReactNode {
@@ -74,14 +74,14 @@ function renderNode(
 		const pane = panes.get(node.id);
 		if (!pane) return null;
 
-		const agentId = pane.agentId;
+		const agentId = pane.agentId || node.agent_id;
 
 		return (
 			<GhosttyTerminal
 				key={node.id}
 				paneId={node.id}
 				agentId={agentId}
-				rect={pane.rect}
+				rect={pane.rect || node.rect || { x: 0, y: 0, width: 800, height: 600 }}
 				isFocused={false}
 				onAgentSelect={(id) => setFocusedAgent(id)}
 			/>
@@ -96,12 +96,12 @@ function renderNode(
 
 		return (
 			<div style={splitStyle} className="flex h-full">
-				{renderNode(node.left, panes, agents, setFocusedAgent)}
+				{node.left && renderNode(node.left, panes, agents, setFocusedAgent)}
 				<div
-					className="bg-gray-700/30 w-[1px]"
-					style={!isVertical ? undefined : { width: "1px", height: "100%" }}
+					className="bg-gray-700/30"
+					style={isVertical ? { width: "1px", height: "100%" } : { width: "1px", height: "100%" }}
 				/>
-				{renderNode(node.right, panes, agents, setFocusedAgent)}
+				{node.right && renderNode(node.right, panes, agents, setFocusedAgent)}
 			</div>
 		);
 	}

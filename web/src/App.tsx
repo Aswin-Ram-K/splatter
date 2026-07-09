@@ -2,7 +2,7 @@
  * Main App component.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { AgentList } from "./components/AgentList";
@@ -18,6 +18,7 @@ export default function App() {
 	const setRoot = useLayoutStore((s) => s.setRoot);
 	const addAgent = useAgentStore((s) => s.addAgent);
 	const setPaneAgent = useLayoutStore((s) => s.setPaneAgent);
+	const spawnedRef = useRef(false);
 
 	useEffect(() => {
 		// Load profiles from Tauri backend
@@ -70,32 +71,35 @@ export default function App() {
 		listen("layout-changed", () => {
 			invoke<any>("get_layout")
 				.then((layout: any) => {
-					setRoot(layout);
+					if (layout) setRoot(layout);
 				})
 				.catch(console.error);
 		});
 
-		// Create initial single-pane layout with agent
-		invoke<string>("new_pane", { profile_id: "pi-agent" })
-			.then((agent_id: string) => {
-				useAgentStore.getState().addAgent({
-					id: agent_id,
-					profile_id: "pi-agent",
-					status: "idle",
-					started_at: new Date().toISOString(),
-					duration_ms: 0,
-					output_bytes: 0,
-					output_lines: 0,
-					cols: 80,
-					rows: 24,
-					notes: [],
-					activity_log: [],
-					pinned: false,
-					groups: [],
-					tags: [],
-				});
-			})
-			.catch(console.error);
+		// Create initial single-pane layout with agent (once)
+		if (!spawnedRef.current) {
+			spawnedRef.current = true;
+			invoke<string>("new_pane", { profile_id: "pi-agent" })
+				.then((agent_id: string) => {
+					addAgent({
+						id: agent_id,
+						profile_id: "pi-agent",
+						status: "idle",
+						started_at: new Date().toISOString(),
+						duration_ms: 0,
+						output_bytes: 0,
+						output_lines: 0,
+						cols: 80,
+						rows: 24,
+						notes: [],
+						activity_log: [],
+						pinned: false,
+						groups: [],
+						tags: [],
+					});
+				})
+				.catch(console.error);
+		}
 	}, [listProfiles, setRoot, addAgent, setPaneAgent]);
 
 	return (

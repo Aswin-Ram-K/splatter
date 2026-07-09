@@ -3,7 +3,7 @@
  * Renders a real Ghostty WASM terminal with PTY input/output bridge.
  */
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useGhostty } from "@/hooks/useGhostty";
@@ -21,13 +21,15 @@ export function GhosttyTerminal({
 	rect,
 	isFocused,
 }: GhosttyTerminalProps) {
-	const { writeOutput, resize, containerRef } = useGhostty({
+	const containerRef = useRef<HTMLDivElement>(null);
+
+	const { writeOutput, resize, containerRef: termRef } = useGhostty({
 		cols: Math.max(10, Math.floor(rect.width / 8)),
 		rows: Math.max(3, Math.floor(rect.height / 16)),
 		agentId,
-		onOutput: useCallback(
+		// Keyboard input FROM terminal (user typing) → forward to PTY
+		onInput: useCallback(
 			(data: Uint8Array) => {
-				// Forward terminal input (keyboard) to PTY via Tauri IPC
 				if (agentId) {
 					invoke("write_to_agent", {
 						agent_id: agentId,
@@ -38,6 +40,13 @@ export function GhosttyTerminal({
 			[agentId],
 		),
 	});
+
+	// Expose container ref for Ghostty
+	useEffect(() => {
+		if (containerRef.current) {
+			(termRef as any).current = containerRef.current;
+		}
+	}, [containerRef, termRef]);
 
 	// Listen for PTY output from Rust and forward to terminal
 	useEffect(() => {
@@ -53,7 +62,7 @@ export function GhosttyTerminal({
 		);
 
 		// Tauri listen() returns a promise — unwrap it
-		unsubPromise.then((unsub) => {
+		unsubPromise.then((unsub: () => void) => {
 			return () => unsub();
 		});
 	}, [agentId, writeOutput]);
@@ -72,14 +81,27 @@ export function GhosttyTerminal({
 		return () => window.removeEventListener("resize", handleResize);
 	}, [resize, rect.width, rect.height]);
 
+	// Focus the terminal when clicked
+	const handleFocus = useCallback(() => {
+		if (containerRef.current) {
+			// Ghostty creates a hidden textarea for input — focus it
+			const textarea = containerRef.current.querySelector("textarea");
+			if (textarea) {
+				(textarea as HTMLTextAreaElement).focus();
+			}
+		}
+	}, []);
+
 	return (
 		<div
 			ref={containerRef}
-			className="h-full w-full"
+			className="h-full w-full outline-none"
 			style={{
 				border: isFocused ? "1px solid #7aa2f7" : "1px solid transparent",
 			}}
 			tabIndex={0}
+			onFocus={handleFocus}
+			onMouseDown={handleFocus}
 		>
 			{/* Pane indicator — shows agent ID when active */}
 			{agentId && (
