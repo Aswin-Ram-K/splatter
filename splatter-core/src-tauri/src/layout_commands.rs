@@ -25,7 +25,7 @@ pub async fn new_pane(
         .map_err(|e| e.to_string())?;
 
     // Associate agent with layout node
-    layout_guard.set_pane_agent(node_id, agent_id.to_string());
+    layout_guard.set_pane_agent(node_id, agent_id.to_string().as_str());
 
     // Emit events
     app.emit("layout-changed", &"pane-created".to_string())
