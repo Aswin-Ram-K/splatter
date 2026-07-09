@@ -110,7 +110,10 @@ export default function App() {
 			{/* Status Bar */}
 			<StatusBar />
 			{/* Settings Modal */}
-			<Settings visible={settingsVisible} onClose={() => setSettingsVisible(false)} />
+			<Settings
+				visible={settingsVisible}
+				onClose={() => setSettingsVisible(false)}
+			/>
 		</div>
 	);
 }

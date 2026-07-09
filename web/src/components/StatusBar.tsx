@@ -45,7 +45,7 @@ export function StatusBar() {
 				</button>
 				<span>Splatter v0.1.0</span>
 			</div>
-			
+
 			{/* Settings Modal */}
 			<Settings visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
 		</div>

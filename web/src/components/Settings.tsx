@@ -52,24 +52,23 @@ export function Settings({ visible, onClose }: SettingsProps) {
 				{/* Header */}
 				<div className="flex items-center justify-between p-4 border-b border-gray-700">
 					<h2 className="text-lg font-semibold text-white">Settings</h2>
-					<button
-						onClick={onClose}
-						className="text-gray-400 hover:text-white"
-					>
+					<button onClick={onClose} className="text-gray-400 hover:text-white">
 						✕
 					</button>
 				</div>
 
 				{/* Tabs */}
 				<div className="flex border-b border-gray-700">
-					{["terminal", "agents", "notifications", "hotkeys", "plugins"].map((tab) => (
-						<button
-							key={tab}
-							className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white border-b-2 border-transparent hover:border-blue-500"
-						>
-							{tab.charAt(0).toUpperCase() + tab.slice(1)}
-						</button>
-					))}
+					{["terminal", "agents", "notifications", "hotkeys", "plugins"].map(
+						(tab) => (
+							<button
+								key={tab}
+								className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white border-b-2 border-transparent hover:border-blue-500"
+							>
+								{tab.charAt(0).toUpperCase() + tab.slice(1)}
+							</button>
+						),
+					)}
 				</div>
 
 				{/* Settings Content */}
@@ -142,7 +141,7 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
-						{/* Plugins Section }*
+					{/* Plugins Section }*
 						<SettingsSection title="Plugins">
 							<PluginList />
 						</SettingsSection>
@@ -189,7 +188,7 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
-						{/* Plugins Section }*
+					{/* Plugins Section }*
 						<SettingsSection title="Plugins">
 							<PluginList />
 						</SettingsSection>
@@ -235,7 +234,7 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						/>
 					</SettingsSection>
 
-						{/* Plugins Section }*
+					{/* Plugins Section }*
 						<SettingsSection title="Plugins">
 							<PluginList />
 						</SettingsSection>
@@ -246,23 +245,25 @@ export function Settings({ visible, onClose }: SettingsProps) {
 						<PluginList />
 					</SettingsSection>
 				</div>
-					{/* Hotkey Settings */}
-					<SettingsSection title="Hotkeys">
-						{Object.entries(settings.hotkeys).map(([key, value]) => (
-							<SettingsInput
-								key={key}
-								label={key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-								value={value}
-								onChange={(v) =>
-									updateSettings({
-										hotkeys: { ...settings.hotkeys, [key]: v },
-									})
-								}
-							/>
-						))}
-					</SettingsSection>
+				{/* Hotkey Settings */}
+				<SettingsSection title="Hotkeys">
+					{Object.entries(settings.hotkeys).map(([key, value]) => (
+						<SettingsInput
+							key={key}
+							label={key
+								.replace(/_/g, " ")
+								.replace(/\b\w/g, (l) => l.toUpperCase())}
+							value={value}
+							onChange={(v) =>
+								updateSettings({
+									hotkeys: { ...settings.hotkeys, [key]: v },
+								})
+							}
+						/>
+					))}
+				</SettingsSection>
 
-						{/* Plugins Section }*
+				{/* Plugins Section }*
 						<SettingsSection title="Plugins">
 							<PluginList />
 						</SettingsSection>

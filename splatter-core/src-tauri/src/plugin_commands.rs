@@ -44,7 +44,7 @@ pub async fn get_plugin_status(app: tauri::AppHandle, name: String) -> Result<se
     let plugins_guard = plugins.lock().map_err(|e| e.to_string())?;
     
     if let Some(plugin) = plugins_guard.get(&name) {
-        serde_json::to_value(&serde_json::json!({
+        serde_json::to_value(serde_json::json!({
             "name": name,
             "enabled": plugin.enabled,
             "state": format!("{:?}", plugin.state),

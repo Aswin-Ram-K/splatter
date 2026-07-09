@@ -141,7 +141,7 @@ pub async fn set_preset(
     name: String,
 ) -> Result<bool, String> {
     let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
-    let mut layout_guard = layout.lock().map_err(|e| e.to_string())?;
+    let _layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
     if let Some(preset) = LayoutTree::preset(&name) {
         let _ = preset;

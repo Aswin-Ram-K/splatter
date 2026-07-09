@@ -19,7 +19,11 @@ export function PluginList() {
 		// Load plugins from Tauri backend
 		invoke<string[]>("list_plugins")
 			.then((list: string[]) => {
-				const items = list.map((name) => ({ name, enabled: true, state: "Ready" }));
+				const items = list.map((name) => ({
+					name,
+					enabled: true,
+					state: "Ready",
+				}));
 				setPlugins(items);
 				setLoading(false);
 			})
@@ -34,7 +38,7 @@ export function PluginList() {
 			const result = await invoke<boolean>("toggle_plugin", { name, enabled });
 			if (result) {
 				setPlugins((prev) =>
-					prev.map((p) => (p.name === name ? { ...p, enabled } : p))
+					prev.map((p) => (p.name === name ? { ...p, enabled } : p)),
 				);
 			}
 		} catch (err) {
@@ -63,9 +67,7 @@ export function PluginList() {
 							className="flex items-center justify-between bg-[#1e1f29] rounded p-3"
 						>
 							<div>
-								<div className="font-medium text-white">
-									{plugin.name}
-								</div>
+								<div className="font-medium text-white">{plugin.name}</div>
 								<div className="text-xs text-gray-400">
 									Status: {plugin.state}
 								</div>

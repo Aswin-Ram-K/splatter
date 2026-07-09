@@ -35,12 +35,18 @@ pub async fn write_to_agent(
     app: tauri::AppHandle,
     agent_id: String,
     data: Vec<u8>,
-) -> Result<(), String> {
+) -> Result<usize, String> {
     let agent_id: AgentId = agent_id.parse().map_err(|e: uuid::Error| e.to_string())?;
     let agents = app.state::<Arc<Mutex<AgentManager>>>().inner();
     let mut agents_guard = agents.lock().map_err(|e| e.to_string())?;
 
-    agents_guard.write(agent_id, &data).map_err(|e| e.to_string())
+    let bytes = agents_guard.write(agent_id, &data).map_err(|e| e.to_string())?;
+
+    // Notify plugins of output
+    let agents = app.state::<Arc<Mutex<AgentManager>>>().inner();
+    let _agents_guard = agents.lock().map_err(|e| e.to_string())?;
+
+    Ok(bytes)
 }
 
 /// Get an agent's state.

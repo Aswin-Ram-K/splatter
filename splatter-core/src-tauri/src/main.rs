@@ -20,6 +20,7 @@ use splatter_core::{
     utils::{app_dirs, AppDirs},
     window::WindowManager,
 };
+use tauri::Emitter;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
@@ -108,7 +109,7 @@ fn main() {
 
             // Start PTY read loop background task
             let agents = state.agents.clone();
-            let app_handle = app.handle();
+            let app_handle = app.app_handle().clone();
             tauri::async_runtime::spawn(async move {
                 use std::time::Duration;
                 loop {
