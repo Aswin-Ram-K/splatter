@@ -4,7 +4,7 @@
   "identifier": "com.splatter.app",
   "build": {
     "frontendDist": "../../web/dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:15173",
     "beforeDevCommand": "cd ../web && npm run dev",
     "beforeBuildCommand": "cd ../web && npm run build"
   },
@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost; connect-src 'self' asset: https://asset.localhost tauri://localhost http://localhost:5173 data: blob:; frame-src 'self' asset: https://asset.localhost tauri://localhost;"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost; connect-src 'self' asset: https://asset.localhost tauri://localhost data: blob:; frame-src 'self' asset: https://asset.localhost tauri://localhost;"
     }
   },
   "bundle": {

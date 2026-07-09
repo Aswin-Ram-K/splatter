@@ -36,17 +36,10 @@ export function useGhostty({
 
 		(async () => {
 			try {
-				// Load WASM from dist/ root (Tauri production embed)
-				// Fallback to auto-discover if not found at explicit path
-				try {
-					ghostty = await Ghostty.load("/ghostty-vt.wasm");
-				} catch {
-					// Fall back to default auto-discover
-					// This won't work in production CSP but helps dev
-					await import("ghostty-web").then(async (m) => {
-						if (m.init) await m.init();
-					});
-				}
+				// Load WASM from the embedded dist directory.
+				// In Tauri production, the dist is served from tauri://localhost/
+				// The / prefix means absolute from the base URL (tauri://localhost)
+				ghostty = await Ghostty.load("/ghostty-vt.wasm");
 
 				// Terminal options matching our Dark theme
 				const options: ITerminalOptions = {
@@ -80,10 +73,8 @@ export function useGhostty({
 						brightCyan: "#0dbbd1",
 						brightWhite: "#acb0d0",
 					},
+					ghostty: ghostty,
 				};
-				if (ghostty) {
-					options.ghostty = ghostty;
-				}
 
 				term = new Terminal(options);
 				if (containerRef.current) {
@@ -100,7 +91,6 @@ export function useGhostty({
 				});
 
 				// Report initial size once (after terminal is fully opened)
-				// Use a small delay to ensure the terminal has finalized dimensions
 				setTimeout(() => {
 					if (onResize && term) {
 						onResize(term.cols, term.rows);
