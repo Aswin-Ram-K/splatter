@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useCallback } from "react";
-import { init, Terminal, type ITerminalOptions } from "ghostty-web";
+import { Ghostty, Terminal, type ITerminalOptions } from "ghostty-web";
 
 export interface UseGhosttyOptions {
 	cols: number;
@@ -26,18 +26,27 @@ export function useGhostty({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const termRef = useRef<Terminal | null>(null);
 	const initializedRef = useRef(false);
-	const resizeSentRef = useRef(false);
 
 	// Initialize Ghostty terminal
 	useEffect(() => {
 		if (initializedRef.current || !containerRef.current) return;
 
+		let ghostty: Ghostty | null = null;
 		let term: Terminal;
 
 		(async () => {
 			try {
-				// Initialize WASM (idempotent — safe to call multiple times)
-				await init();
+				// Load WASM from dist/ root (Tauri production embed)
+				// Fallback to auto-discover if not found at explicit path
+				try {
+					ghostty = await Ghostty.load("/ghostty-vt.wasm");
+				} catch {
+					// Fall back to default auto-discover
+					// This won't work in production CSP but helps dev
+					await import("ghostty-web").then(async (m) => {
+						if (m.init) await m.init();
+					});
+				}
 
 				// Terminal options matching our Dark theme
 				const options: ITerminalOptions = {
@@ -72,6 +81,9 @@ export function useGhostty({
 						brightWhite: "#acb0d0",
 					},
 				};
+				if (ghostty) {
+					options.ghostty = ghostty;
+				}
 
 				term = new Terminal(options);
 				if (containerRef.current) {
@@ -87,23 +99,13 @@ export function useGhostty({
 					}
 				});
 
-				// Report initial size
-				if (onResize) {
-					onResize(term.cols, term.rows);
-				}
-
-				term.onResize((resize) => {
-					// Only fire onResize for actual resize events (not initial)
-					if (resizeSentRef.current && onResize) {
-						onResize(resize.cols, resize.rows);
+				// Report initial size once (after terminal is fully opened)
+				// Use a small delay to ensure the terminal has finalized dimensions
+				setTimeout(() => {
+					if (onResize && term) {
+						onResize(term.cols, term.rows);
 					}
-				});
-
-				// Report initial size (single call)
-				if (onResize) {
-					resizeSentRef.current = true;
-					onResize(term.cols, term.rows);
-				}
+				}, 0);
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				console.error("[Ghostty] Init failed:", msg);
@@ -135,14 +137,5 @@ export function useGhostty({
 		}
 	}, []);
 
-	// Write input to terminal (user typing — forwarded to PTY)
-	const writeInput = useCallback((data: Uint8Array) => {
-		if (termRef.current) {
-			// Convert bytes to string and use Ghostty's input() which triggers onData
-			const text = new TextDecoder().decode(data);
-			termRef.current.input(text, true);
-		}
-	}, []);
-
-	return { writeOutput, writeInput, resize, containerRef };
+	return { writeOutput, resize, containerRef: termRef };
 }
