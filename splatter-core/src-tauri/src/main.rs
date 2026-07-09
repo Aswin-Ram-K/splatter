@@ -109,6 +109,7 @@ fn main() {
 
             // Start PTY read loop background task
             let agents = state.agents.clone();
+            let tray = state.tray.clone();
             let app_handle = app.app_handle().clone();
             tauri::async_runtime::spawn(async move {
                 use std::time::Duration;
@@ -123,6 +124,14 @@ fn main() {
                         };
                         let _ = app_handle.emit("agent-output", event);
                     }
+                    // Update tray status
+                    let agent_states: Vec<splatter_core::tray::AgentStateSummary> = agents.iter()
+                        .map(|(_, session)| splatter_core::tray::AgentStateSummary {
+                            status: session.status,
+                        })
+                        .collect();
+                    let mut tray_guard = tray.lock().unwrap();
+                    tray_guard.tick(&agent_states);
                 }
             });
 

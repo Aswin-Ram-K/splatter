@@ -42,6 +42,7 @@ pub struct PluginInstance {
 pub enum PluginState {
     Loading,
     Ready,
+    Disabled,
     Error(String),
 }
 
@@ -125,7 +126,7 @@ impl PluginHost {
             instance.state = if enabled {
                 PluginState::Ready
             } else {
-                PluginState::Error("Disabled".to_string())
+                PluginState::Disabled
             };
             true
         } else {

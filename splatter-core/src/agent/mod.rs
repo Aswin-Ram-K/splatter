@@ -661,6 +661,11 @@ impl AgentManager {
         self.sessions.keys().cloned().collect()
     }
 
+    /// Iterate over all agent sessions.
+    pub fn iter(&self) -> impl Iterator<Item = (&AgentId, &Session)> {
+        self.sessions.iter()
+    }
+
     /// Get session by ID (mutable).
     pub fn get_mut(&mut self, agent_id: AgentId) -> Option<&mut Session> {
         self.sessions.get_mut(&agent_id)

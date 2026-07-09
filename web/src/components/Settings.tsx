@@ -2,7 +2,7 @@
  * Settings component — Renders the full settings UI.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { PluginList } from "./PluginList";
@@ -15,6 +15,7 @@ interface SettingsProps {
 export function Settings({ visible, onClose }: SettingsProps) {
 	const settings = useSettingsStore((s) => s.settings);
 	const updateSettings = useSettingsStore((s) => s.updateSettings);
+	const [activeTab, setActiveTab] = useState("terminal");
 
 	useEffect(() => {
 		if (visible) {
@@ -67,7 +68,12 @@ export function Settings({ visible, onClose }: SettingsProps) {
 							<button
 								key={tab}
 								type="button"
-								className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white border-b-2 border-transparent hover:border-blue-500"
+								onClick={() => setActiveTab(tab)}
+								className={`px-4 py-2 text-sm font-medium border-b-2 ${
+									activeTab === tab
+										? "text-blue-400 border-blue-500"
+										: "text-gray-300 border-transparent hover:text-white hover:border-blue-500"
+								}`}
 							>
 								{tab.charAt(0).toUpperCase() + tab.slice(1)}
 							</button>
@@ -77,7 +83,7 @@ export function Settings({ visible, onClose }: SettingsProps) {
 
 				{/* Settings Content */}
 				<div className="p-6 space-y-6">
-					{/* Terminal Settings */}
+					{activeTab === "terminal" && (
 					<SettingsSection title="Terminal">
 						<SettingsInput
 							label="Font Family"
@@ -144,8 +150,9 @@ export function Settings({ visible, onClose }: SettingsProps) {
 							}
 						/>
 					</SettingsSection>
+					)}
 
-					{/* Agent Settings */}
+					{activeTab === "agents" && (
 					<SettingsSection title="Agents">
 						<SettingsInput
 							label="Max Sessions"
@@ -186,8 +193,9 @@ export function Settings({ visible, onClose }: SettingsProps) {
 							}
 						/>
 					</SettingsSection>
+					)}
 
-					{/* Notification Settings */}
+					{activeTab === "notifications" && (
 					<SettingsSection title="Notifications">
 						<SettingsToggle
 							label="Enable Notifications"
@@ -227,13 +235,15 @@ export function Settings({ visible, onClose }: SettingsProps) {
 							}
 						/>
 					</SettingsSection>
+					)}
 
-					{/* Plugins Section */}
+					{activeTab === "plugins" && (
 					<SettingsSection title="Plugins">
 						<PluginList />
 					</SettingsSection>
+					)}
 
-					{/* Hotkey Settings */}
+					{activeTab === "hotkeys" && (
 					<SettingsSection title="Hotkeys">
 						{Object.entries(settings.hotkeys).map(([key, value]) => (
 							<SettingsInput
@@ -250,6 +260,7 @@ export function Settings({ visible, onClose }: SettingsProps) {
 							/>
 						))}
 					</SettingsSection>
+					)}
 				</div>
 
 				{/* Footer */}

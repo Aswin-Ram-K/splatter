@@ -137,8 +137,12 @@ pub enum FocusDirection {
 /// The full layout tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutTree {
+    /// Root node of the BSP tree.
     nodes: Vec<LayoutNode>,
+    /// Next node ID to allocate.
     next_id: NodeId,
+    /// Currently focused pane.
+    focused_id: Option<NodeId>,
 }
 
 impl Default for LayoutTree {
@@ -159,6 +163,7 @@ impl LayoutTree {
                 },
             }],
             next_id: 2,
+            focused_id: None,
         }
     }
 
@@ -271,17 +276,42 @@ impl LayoutTree {
         }
     }
 
-    /// Focus the node in the given direction.
-    pub fn focus_direction(&mut self, _direction: FocusDirection) {}
+    /// Set the focused pane to a specific node by ID.
+    pub fn focus_by_id(&mut self, node_id: NodeId) {
+        if self.get_node(node_id).is_some() {
+            self.focused_id = Some(node_id);
+        }
+    }
 
-    /// Focus a specific node by ID.
-    pub fn focus_by_id(&mut self, _node_id: NodeId) {}
+    /// Focus the pane in the given direction.
+    /// Next/Right/Down → next leaf; Previous/Left/Up → previous leaf.
+    pub fn focus_direction(&mut self, direction: FocusDirection) {
+        let leaf_ids = self.leaf_ids();
+        if leaf_ids.is_empty() {
+            return;
+        }
+        let current = self.focused_id.unwrap_or(leaf_ids[0]);
+        let current_idx = leaf_ids.iter().position(|&id| id == current).unwrap_or(0);
+        let next_idx = match direction {
+            FocusDirection::Next | FocusDirection::Right | FocusDirection::Down => {
+                (current_idx + 1) % leaf_ids.len()
+            }
+            FocusDirection::Previous | FocusDirection::Left | FocusDirection::Up => {
+                if current_idx == 0 {
+                    leaf_ids.len() - 1
+                } else {
+                    current_idx - 1
+                }
+            }
+        };
+        self.focus_by_id(leaf_ids[next_idx]);
+    }
 
-    /// Get the focused node ID.
+    /// Get the currently focused pane ID.
     pub fn focused_id(&self) -> Option<NodeId> {
-        self.nodes.last().and_then(|n| match n {
-            LayoutNode::Leaf { id, .. } => Some(*id),
-            _ => None,
+        self.focused_id.or_else(|| {
+            let leaves = self.leaf_ids();
+            leaves.last().copied()
         })
     }
 
@@ -397,6 +427,7 @@ impl LayoutTree {
     pub fn set_tree(&mut self, tree: LayoutNode) {
         self.nodes.clear();
         self.nodes.push(tree);
+        self.focused_id = None;
     }
 
     /// Get the pane size for a node (traverses the tree).
@@ -615,5 +646,74 @@ mod tests {
         // 3 → 4 leaves
         tree.split(SplitDirection::Vertical, 0.5);
         assert_eq!(tree.leaf_count(), 4);
+    }
+
+    // ── Focus tests (Phase 1.1) ────────────────────────────────────
+
+    #[test]
+    fn test_focus_by_id() {
+        let mut tree = LayoutTree::new();
+        let id2 = tree.split(SplitDirection::Horizontal, 0.5);
+        assert_eq!(tree.leaf_count(), 2);
+
+        // Focus leaf 2
+        tree.focus_by_id(id2);
+        assert_eq!(tree.focused_id(), Some(id2));
+    }
+
+    #[test]
+    fn test_focus_by_id_invalid() {
+        let mut tree = LayoutTree::new();
+        // Focusing a non-existent ID should not change focus (remains None)
+        // But focused_id() falls back to last leaf
+        tree.focus_by_id(999);
+        // focused_id is still None since invalid focus was ignored
+        // fallback returns last leaf (which is leaf 1)
+        assert_eq!(tree.focused_id(), Some(1));
+        // Explicitly verify focused_id field is still None
+        assert!(tree.focused_id.is_none());
+    }
+
+    #[test]
+    fn test_focus_direction() {
+        let mut tree = LayoutTree::new();
+        // Create 3 leaves
+        tree.split(SplitDirection::Horizontal, 0.5);
+        tree.split(SplitDirection::Horizontal, 0.5);
+        assert_eq!(tree.leaf_count(), 3);
+
+        // Start at first leaf (or None)
+        let first_leaf = tree.leaf_ids()[0];
+        tree.focus_by_id(first_leaf);
+
+        // Focus next → should cycle to second leaf
+        tree.focus_direction(FocusDirection::Next);
+        let focused = tree.focused_id().unwrap();
+        assert!(tree.leaf_ids().contains(&focused));
+
+        // Focus previous → should go back
+        tree.focus_direction(FocusDirection::Previous);
+        let focused2 = tree.focused_id().unwrap();
+        assert_eq!(focused2, first_leaf);
+    }
+
+    #[test]
+    fn test_focus_cycles_all_leaves() {
+        let mut tree = LayoutTree::new();
+        // Create 3 leaves
+        tree.split(SplitDirection::Horizontal, 0.5);
+        tree.split(SplitDirection::Horizontal, 0.5);
+        let leaves = tree.leaf_ids();
+        assert_eq!(leaves.len(), 3);
+
+        // Start at first, cycle through all
+        tree.focus_by_id(leaves[0]);
+        for i in 1..3 {
+            tree.focus_direction(FocusDirection::Next);
+            assert_eq!(tree.focused_id(), Some(leaves[i]));
+        }
+        // Next should wrap to first
+        tree.focus_direction(FocusDirection::Next);
+        assert_eq!(tree.focused_id(), Some(leaves[0]));
     }
 }
