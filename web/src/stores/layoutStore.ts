@@ -117,15 +117,15 @@ splitPane: (direction, ratio) => {
 			});
 		}
 
-		// Spawn a default agent on the new pane
-		invoke("spawn_agent", {
-			profile_id: "pi-agent",
-			cols: 80,
-			rows: 24,
-			layout_node_id: rightNodeId,
-		}).catch((err: unknown) => {
-			console.error("Failed to spawn agent on split:", err);
-		});
+			// Create a new pane with an agent via new_pane
+			invoke<string>("new_pane", { profile_id: "pi-agent" })
+				.then((agent_id: string) => {
+					// Associate agent with the new pane
+					useLayoutStore.getState().setPaneAgent(rightNodeId, agent_id);
+				})
+				.catch((err: unknown) => {
+					console.error("Failed to create pane:", err);
+				});
 
 		return rightNodeId;
 	},

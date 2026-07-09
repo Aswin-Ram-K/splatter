@@ -68,10 +68,27 @@ export default function App() {
 			}).catch(console.error);
 		});
 
-		// Create initial single-pane layout
-		invoke<any>("get_layout").then((layout: any) => {
-			setRoot(layout);
-		}).catch(console.error);
+		// Create initial single-pane layout with agent
+		invoke<string>("new_pane", { profile_id: "pi-agent" })
+			.then((agent_id: string) => {
+				useAgentStore.getState().addAgent({
+					id: agent_id,
+					profile_id: "pi-agent",
+					status: "idle",
+					started_at: new Date().toISOString(),
+					duration_ms: 0,
+					output_bytes: 0,
+					output_lines: 0,
+					cols: 80,
+					rows: 24,
+					notes: [],
+					activity_log: [],
+					pinned: false,
+					groups: [],
+					tags: [],
+				});
+			})
+			.catch(console.error);
 	}, [listProfiles, setRoot, addAgent, setPaneAgent]);
 
 	return (
