@@ -3260,6 +3260,7 @@ dependencies = [
  "env_logger",
  "futures",
  "globset",
+ "libc",
  "log",
  "nix",
  "parking_lot",

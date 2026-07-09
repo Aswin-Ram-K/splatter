@@ -1,39 +1,42 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-import fs from 'fs';
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import path from "path";
+import fs from "fs";
 
 // Vite plugin to copy ghostty-vt.wasm to dist root
 function copyGhosttyWasm() {
-  return {
-    name: 'copy-ghostty-wasm',
-    closeBundle() {
-      const src = path.resolve(__dirname, 'node_modules/ghostty-web/ghostty-vt.wasm');
-      const dst = path.resolve(__dirname, 'dist/ghostty-vt.wasm');
-      fs.copyFileSync(src, dst);
-    },
-  };
+	return {
+		name: "copy-ghostty-wasm",
+		closeBundle() {
+			const src = path.resolve(
+				__dirname,
+				"node_modules/ghostty-web/ghostty-vt.wasm",
+			);
+			const dst = path.resolve(__dirname, "dist/ghostty-vt.wasm");
+			fs.copyFileSync(src, dst);
+		},
+	};
 }
 
 export default defineConfig({
-  plugins: [react(), copyGhosttyWasm()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-  server: {
-    port: 5173,
-    strictPort: true,
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          // Split ghostty-web into its own chunk
-          'ghostty': ['ghostty-web'],
-        },
-      },
-    },
-  },
+	plugins: [react(), copyGhosttyWasm()],
+	resolve: {
+		alias: {
+			"@": path.resolve(__dirname, "./src"),
+		},
+	},
+	server: {
+		port: 5173,
+		strictPort: true,
+	},
+	build: {
+		rollupOptions: {
+			output: {
+				manualChunks: {
+					// Split ghostty-web into its own chunk
+					ghostty: ["ghostty-web"],
+				},
+			},
+		},
+	},
 });

@@ -3,10 +3,10 @@
  * Renders a real Ghostty WASM terminal with PTY input/output bridge.
  */
 
-import { useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { useGhostty } from '@/hooks/useGhostty';
+import { useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { useGhostty } from "@/hooks/useGhostty";
 
 export interface GhosttyTerminalProps {
 	paneId: number;
@@ -25,26 +25,32 @@ export function GhosttyTerminal({
 		cols: Math.max(10, Math.floor(rect.width / 8)),
 		rows: Math.max(3, Math.floor(rect.height / 16)),
 		agentId,
-		onOutput: useCallback((data: Uint8Array) => {
-			// Forward terminal input to PTY via Tauri IPC
-			if (agentId) {
-				invoke('write_to_agent', {
-					agent_id: agentId,
-					data: Array.from(data),
-				}).catch(console.error);
-			}
-		}, [agentId]),
+		onOutput: useCallback(
+			(data: Uint8Array) => {
+				// Forward terminal input to PTY via Tauri IPC
+				if (agentId) {
+					invoke("write_to_agent", {
+						agent_id: agentId,
+						data: Array.from(data),
+					}).catch(console.error);
+				}
+			},
+			[agentId],
+		),
 	});
 
 	// Listen for PTY output from Rust and forward to terminal
 	useEffect(() => {
 		if (!agentId) return;
 
-		const unsubPromise = listen('agent-output', (event: { payload: { agent_id: string; data: number[] } }) => {
-			if (event.payload.agent_id === agentId) {
-				writeOutput(new Uint8Array(event.payload.data));
-			}
-		});
+		const unsubPromise = listen(
+			"agent-output",
+			(event: { payload: { agent_id: string; data: number[] } }) => {
+				if (event.payload.agent_id === agentId) {
+					writeOutput(new Uint8Array(event.payload.data));
+				}
+			},
+		);
 
 		// Tauri listen() returns a promise — unwrap it
 		unsubPromise.then((unsub) => {
@@ -62,8 +68,8 @@ export function GhosttyTerminal({
 			resize(newCols, newRows);
 		};
 
-		window.addEventListener('resize', handleResize);
-		return () => window.removeEventListener('resize', handleResize);
+		window.addEventListener("resize", handleResize);
+		return () => window.removeEventListener("resize", handleResize);
 	}, [resize, rect.width, rect.height]);
 
 	return (
@@ -71,7 +77,7 @@ export function GhosttyTerminal({
 			ref={containerRef}
 			className="h-full w-full"
 			style={{
-				border: isFocused ? '1px solid #7aa2f7' : '1px solid transparent',
+				border: isFocused ? "1px solid #7aa2f7" : "1px solid transparent",
 			}}
 			tabIndex={0}
 		>

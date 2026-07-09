@@ -7,9 +7,9 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ pub struct AgentState {
     pub profile_id: String,
     pub status: AgentStatus,
     pub started_at: DateTime<Utc>,
-    pub duration: Duration,
+    pub duration: std::time::Duration,
     pub output_bytes: usize,
     pub output_lines: usize,
     pub cols: u16,
@@ -97,6 +97,16 @@ pub struct AgentState {
     pub pinned: bool,
     pub groups: Vec<String>,
     pub tags: Vec<String>,
+}
+
+/// Process PID (opaque handle).
+#[derive(Debug, Clone, Copy)]
+pub struct ProcessPid(nix::unistd::Pid);
+
+impl ProcessPid {
+    pub fn from_pid(pid: nix::unistd::Pid) -> Self {
+        Self(pid)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -159,10 +169,14 @@ impl OutputBuffer {
 // ---------------------------------------------------------------------------
 
 /// A single PTY-backed agent session.
+///
+/// Uses rustix PTY (openpty) for a real pseudo-terminal,
+/// with a spawned child process and async read loop.
 pub struct Session {
     pub id: AgentId,
     pub profile_id: String,
-    pub child: Option<Child>,
+    pub master_fd: RawFd,
+    pub child_pid: Option<ProcessPid>,
     pub status: AgentStatus,
     pub output: OutputBuffer,
     pub started_at: Instant,
@@ -176,31 +190,27 @@ pub struct Session {
 }
 
 impl Session {
-    /// Spawn a new agent session with the given profile.
+    /// Spawn a new agent session with the given profile and terminal size.
+    ///
+    /// Uses rustix `openpty()` to create a real PTY, then spawns the
+    /// child process connected to the slave side.
     pub fn spawn(profile: &AgentProfile, cols: u16, rows: u16) -> Result<Self> {
         let id = Uuid::new_v4();
-        // Apply environment variables
-        let mut cmd = Command::new(&profile.command);
-        cmd.args(&profile.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
 
-        for (k, v) in &profile.env {
-            cmd.env(k, v);
-        }
+        // Create PTY pair (master/slave)
+        let (master_fd, slave_fd) = Self::create_pty(cols, rows)?;
 
-        // Working directory
-        if let Some(cwd) = &profile.cwd {
-            cmd.current_dir(cwd);
-        }
+        // Spawn child process connected to slave PTY
+        let child_pid = Self::spawn_child(profile, slave_fd)?;
 
-        let child = cmd.spawn()?;
+        // Close slave FD in parent (keep only in child)
+        unsafe { nix::unistd::close(slave_fd) }?;
 
         let mut session = Self {
             id,
             profile_id: profile.id.clone(),
-            child: Some(child),
+            master_fd,
+            child_pid,
             status: AgentStatus::Launching,
             output: OutputBuffer::new(512_000), // 512KB default
             started_at: Instant::now(),
@@ -218,27 +228,143 @@ impl Session {
             tags: Vec::new(),
         };
 
-        // Transition to idle after a short delay (or immediately for simple shells)
+        // Transition to idle after spawn
         session.update_status(AgentStatus::Idle);
 
         Ok(session)
     }
 
-    /// Write data to the PTY stdin.
-    pub fn write(&mut self, data: &[u8]) -> Result<()> {
-        // In a real implementation, we'd use PTY master/slave
-        // For now, just record the input
-        if !data.is_empty() {
-            self.record_input(data.len());
+    /// Create a PTY pair with the given terminal size.
+    fn create_pty(cols: u16, rows: u16) -> Result<(RawFd, RawFd)> {
+        use nix::pty::{openpty, Winsize};
+
+        // Open a new PTY
+        let tty = openpty(None, None)?;
+
+        // Set terminal size using ioctl
+        let winsize = Winsize {
+            ws_row: rows,
+            ws_col: cols,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // Set window size via ioctl
+        unsafe {
+            libc::ioctl(tty.master.as_raw_fd(), libc::TIOCSWINSZ, &winsize);
         }
-        Ok(())
+
+        Ok((tty.master.as_raw_fd(), tty.slave.as_raw_fd()))
+    }
+
+    /// Spawn the child process connected to the slave PTY.
+    fn spawn_child(profile: &AgentProfile, slave_fd: RawFd) -> Result<Option<ProcessPid>> {
+        use std::process::Command;
+
+        // Spawn the child process with slave PTY as stdin/stdout/stderr
+        // We use pre_exec to dup the slave FD to 0/1/2 in the child
+        let child = unsafe {
+            use std::os::unix::process::CommandExt;
+
+            Command::new(&profile.command)
+                .args(&profile.args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .pre_exec(move || {
+                    // In the child process:
+                    // 1. Create a new session (controlling terminal)
+                    let _ = nix::unistd::setsid();
+                    // 2. Dup slave FD to stdin, stdout, stderr
+                    nix::unistd::dup2(slave_fd, 0)?;
+                    nix::unistd::dup2(slave_fd, 1)?;
+                    nix::unistd::dup2(slave_fd, 2)?;
+                    // 3. Set slave FD as controlling terminal
+                    libc::ioctl(0, libc::TIOCSCTTY, 1);
+                    Ok(())
+                })
+                .spawn()
+        };
+
+        match child {
+            Ok(child) => {
+                let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+                Ok(Some(ProcessPid::from_pid(pid)))
+            }
+            Err(e) => Err(anyhow::anyhow!("Failed to spawn process: {}", e)),
+        }
+    }
+
+    /// Write data to the PTY (non-blocking).
+    pub fn write(&mut self, data: &[u8]) -> Result<usize> {
+        // Poll for write availability first
+        let mut poll_fds = [libc::pollfd {
+            fd: self.master_fd,
+            events: libc::POLLOUT,
+            revents: 0,
+        }];
+
+        let ret = unsafe { libc::poll(poll_fds.as_mut_ptr(), 1, 0) };
+        if ret < 0 || poll_fds[0].revents & libc::POLLOUT == 0 {
+            return Err(anyhow::anyhow!("PTY not ready for write"));
+        }
+
+        // Write to master FD using libc
+        let n = unsafe { libc::write(self.master_fd, data.as_ptr() as *const libc::c_void, data.len()) };
+        if n < 0 {
+            return Err(anyhow::anyhow!("write failed: {}", std::io::Error::last_os_error()));
+        }
+
+        self.record_input(n as usize);
+        Ok(n as usize)
+    }
+
+    /// Read data from the PTY master (non-blocking).
+    ///
+    /// Returns Some(n) if data was read, None if no data available.
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<Option<usize>> {
+        self.read_from_master(buf)
+    }
+
+    /// Read from PTY master FD directly.
+    fn read_from_master(&mut self, buf: &mut [u8]) -> Result<Option<usize>> {
+        use std::io::ErrorKind;
+
+        // Use poll() to check for readability
+        let mut poll_fds = [libc::pollfd {
+            fd: self.master_fd,
+            events: libc::POLLIN | libc::POLLHUP,
+            revents: 0,
+        }];
+
+        let ret = unsafe { libc::poll(poll_fds.as_mut_ptr(), 1, 0) };
+        if ret < 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == ErrorKind::WouldBlock {
+                return Ok(None);
+            }
+            return Err(anyhow::anyhow!("poll failed: {}", err));
+        }
+
+        if poll_fds[0].revents & libc::POLLHUP != 0 {
+            // Connection closed — agent exited
+            return Ok(Some(0)); // EOF indicates exit
+        }
+
+        if poll_fds[0].revents & libc::POLLIN != 0 {
+            // Read from master FD using libc
+            let n = unsafe { libc::read(self.master_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+            if n > 0 {
+                return Ok(Some(n as usize));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Send a signal to the agent process.
     pub fn signal(&self, signal: nix::sys::signal::Signal) -> Result<()> {
-        if let Some(ref child) = self.child {
-            let pid = nix::unistd::Pid::from_raw(child.id() as i32);
-            nix::sys::signal::kill(pid, signal)?;
+        if let Some(ref pid) = self.child_pid {
+            nix::sys::signal::kill(pid.0, signal)?;
         } else {
             return Err(anyhow::anyhow!("No child process"));
         }
@@ -247,14 +373,18 @@ impl Session {
 
     /// Check if the process has exited.
     pub fn poll(&mut self) -> Option<i32> {
-        if let Some(ref mut child) = self.child {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    let code = status.code().unwrap_or(-1);
+        if let Some(ref pid) = self.child_pid {
+            use nix::sys::wait::{waitpid, WaitPidFlag};
+            match waitpid(pid.0, Some(WaitPidFlag::WNOHANG)) {
+                Ok(nix::sys::wait::WaitStatus::Exited(_, code)) => {
                     self.update_status(AgentStatus::Done);
                     Some(code)
                 }
-                Ok(None) => None, // still running
+                Ok(nix::sys::wait::WaitStatus::Signaled(_, sig, _)) => {
+                    self.update_status(AgentStatus::Error);
+                    Some(-(sig as i32))
+                }
+                Ok(_) => None, // still running
                 Err(_) => {
                     self.update_status(AgentStatus::Error);
                     Some(-1)
@@ -280,7 +410,7 @@ impl Session {
     }
 
     /// Get duration since started.
-    pub fn duration(&self) -> Duration {
+    pub fn duration(&self) -> std::time::Duration {
         self.started_at.elapsed()
     }
 
@@ -390,7 +520,7 @@ impl AgentManager {
     }
 
     /// Write data to an agent's PTY.
-    pub fn write(&mut self, agent_id: AgentId, data: &[u8]) -> Result<()> {
+    pub fn write(&mut self, agent_id: AgentId, data: &[u8]) -> Result<usize> {
         let session = self
             .sessions
             .get_mut(&agent_id)
@@ -403,6 +533,34 @@ impl AgentManager {
         if let Some(session) = self.sessions.get_mut(&agent_id) {
             session.write_output(data);
         }
+    }
+
+    /// Read from all PTY masters (non-blocking).
+    ///
+    /// Returns a Vec of (agent_id, bytes_read) for agents that have output.
+    pub fn read_all(&mut self) -> Vec<(AgentId, Vec<u8>)> {
+        let mut results = Vec::new();
+
+        for (id, session) in self.sessions.iter_mut() {
+            let mut buf = [0u8; 4096];
+            match session.read_from_master(&mut buf) {
+                Ok(Some(n)) if n > 0 => {
+                    let output = buf[..n].to_vec();
+                    session.write_output(&output);
+                    results.push((*id, output));
+                }
+                Ok(Some(0)) => {
+                    // EOF — agent exited
+                    session.update_status(AgentStatus::Done);
+                }
+                Err(_) => {
+                    session.update_status(AgentStatus::Error);
+                }
+                _ => {} // WouldBlock
+            }
+        }
+
+        results
     }
 
     /// Poll all sessions and update statuses.
@@ -531,9 +689,6 @@ impl AgentManager {
     }
 }
 
-// We need serde_yaml for profile loading — add as optional dependency
-// In production, profiles could also be loaded from config
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,5 +714,24 @@ mod tests {
     fn test_agent_id() {
         let id = Uuid::new_v4();
         assert_eq!(id.to_string().len(), 36); // UUID v4 format
+    }
+
+    #[test]
+    fn test_session_spawn_error() {
+        // Spawning a non-existent command should fail
+        let profile = AgentProfile {
+            id: "test".to_string(),
+            name: "test".to_string(),
+            description: None,
+            command: "/nonexistent/binary".to_string(),
+            args: vec![],
+            env: HashMap::new(),
+            cwd: None,
+            scrollback: None,
+            cols: Some(80),
+            rows: Some(24),
+        };
+        let result = Session::spawn(&profile, 80, 24);
+        assert!(result.is_err());
     }
 }
