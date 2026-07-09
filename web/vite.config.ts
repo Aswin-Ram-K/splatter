@@ -3,14 +3,13 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
 
-// Vite plugin to copy ghostty-vt.wasm to dist during build
+// Vite plugin to copy ghostty-vt.wasm to dist root
 function copyGhosttyWasm() {
   return {
     name: 'copy-ghostty-wasm',
     closeBundle() {
       const src = path.resolve(__dirname, 'node_modules/ghostty-web/ghostty-vt.wasm');
-      const dst = path.resolve(__dirname, 'dist/wasm/ghostty-vt.wasm');
-      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      const dst = path.resolve(__dirname, 'dist/ghostty-vt.wasm');
       fs.copyFileSync(src, dst);
     },
   };
