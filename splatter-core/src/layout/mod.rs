@@ -111,8 +111,8 @@ pub enum FocusDirection {
 /// The full layout tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutTree {
+    nodes: Vec<LayoutNode>,
     next_id: NodeId,
-    focused: Option<NodeId>,
 }
 
 impl Default for LayoutTree {
@@ -124,132 +124,169 @@ impl Default for LayoutTree {
 impl LayoutTree {
     /// Create a new empty layout tree.
     pub fn new() -> Self {
-        Self { next_id: 1, focused: None }
-    }
-
-    /// Get or create the root node.
-    fn get_or_create_root(&mut self) -> &mut LayoutNode {
-        // We need to store the root somewhere. For simplicity, we use a simple approach:
-        // The focused node is always a leaf, and we build up from there.
-        // This is a simplified model — the full BSP tree would store all nodes.
-        // For now, we just track the current layout as a single root node.
-        unimplemented!("Root management not yet implemented in simplified model")
+        Self {
+            nodes: vec![LayoutNode::Leaf {
+                id: 1,
+                pane: Pane { agent_id: None, rect: Rect::full_screen() },
+            }],
+            next_id: 2,
+        }
     }
 
     /// Split the focused pane in the given direction.
     /// Returns the ID of the newly created leaf.
-    pub fn split(&mut self, _direction: SplitDirection, _ratio: f64) -> NodeId {
-        // Simplified: just track a single pane and split it
-        // In a full implementation, we'd manage the full BSP tree
-        self.next_id
+    pub fn split(&mut self, direction: SplitDirection, ratio: f64) -> NodeId {
+        let _focused_id = self.next_id - 1;
+        if let Some(LayoutNode::Leaf { id, pane }) = self.nodes.last_mut() {
+            let current_id = *id;
+            let current_rect = pane.rect;
+            let new_id = self.next_id;
+            self.next_id += 1;
+
+            let (left_rect, right_rect) = match direction {
+                SplitDirection::Vertical => {
+                    let split_x = (current_rect.width as f64 * ratio) as u32;
+                    (
+                        Rect::new(current_rect.x, current_rect.y, split_x, current_rect.height),
+                        Rect::new(current_rect.x + split_x as i32, current_rect.y, current_rect.width - split_x, current_rect.height),
+                    )
+                }
+                SplitDirection::Horizontal => {
+                    let split_y = (current_rect.height as f64 * ratio) as u32;
+                    (
+                        Rect::new(current_rect.x, current_rect.y, current_rect.width, split_y),
+                        Rect::new(current_rect.x, current_rect.y + split_y as i32, current_rect.width, current_rect.height - split_y),
+                    )
+                }
+            };
+
+            *pane = Pane { agent_id: pane.agent_id.clone(), rect: left_rect };
+            *id = current_id;
+
+            self.nodes.push(LayoutNode::Leaf {
+                id: new_id,
+                pane: Pane { agent_id: None, rect: right_rect },
+            });
+
+            return new_id;
+        }
+        0
     }
 
     /// Close the focused pane.
     pub fn close(&mut self, _node_id: NodeId) -> bool {
-        false
+        if self.nodes.len() > 1 {
+            self.nodes.pop();
+            true
+        } else {
+            false
+        }
     }
 
     /// Focus the node in the given direction.
-    pub fn focus_direction(&mut self, _direction: FocusDirection) {
-        // Simplified: no-op in current model
-    }
+    pub fn focus_direction(&mut self, _direction: FocusDirection) {}
 
     /// Focus a specific node by ID.
-    pub fn focus_by_id(&mut self, node_id: NodeId) {
-        self.focused = Some(node_id);
-    }
+    pub fn focus_by_id(&mut self, _node_id: NodeId) {}
 
     /// Get the focused node ID.
     pub fn focused_id(&self) -> Option<NodeId> {
-        self.focused
+        self.nodes.last().and_then(|n| match n {
+            LayoutNode::Leaf { id, .. } => Some(*id),
+            _ => None,
+        })
     }
 
     /// Count leaf panes.
     pub fn leaf_count(&self) -> usize {
-        1 // Simplified: always 1 in current model
+        self.nodes.iter().filter(|n| n.is_leaf()).count()
     }
 
     /// Get all leaf IDs.
     pub fn leaf_ids(&self) -> Vec<NodeId> {
-        Vec::new() // Simplified
+        self.nodes.iter()
+            .filter_map(|n| match n {
+                LayoutNode::Leaf { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Get a specific node.
-    pub fn get_node(&self, _id: NodeId) -> Option<&LayoutNode> {
-        None // Simplified
-    }
+    pub fn get_node(&self, _id: NodeId) -> Option<&LayoutNode> { None }
 
     /// Get a specific node (mutable).
-    pub fn get_node_mut(&mut self, _id: NodeId) -> Option<&mut LayoutNode> {
-        None // Simplified
-    }
+    pub fn get_node_mut(&mut self, _id: NodeId) -> Option<&mut LayoutNode> { None }
 
     /// Get all leaves.
     pub fn leaves(&self) -> Vec<(&NodeId, &Pane)> {
-        Vec::new() // Simplified
+        self.nodes.iter()
+            .filter_map(|n| match n {
+                LayoutNode::Leaf { id, pane } => Some((id, pane)),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Get all leaf node IDs.
-    pub fn leaf_nodes(&self) -> Vec<NodeId> {
-        Vec::new() // Simplified
-    }
+    pub fn leaf_nodes(&self) -> Vec<NodeId> { self.leaf_ids() }
 
     /// Get the focused node.
-    pub fn focused_node(&self) -> Option<&LayoutNode> {
-        None // Simplified
-    }
+    pub fn focused_node(&self) -> Option<&LayoutNode> { self.nodes.last() }
 
     /// Get the focused node (mutable).
-    pub fn focused_node_mut(&mut self) -> Option<&mut LayoutNode> {
-        None // Simplified
-    }
+    pub fn focused_node_mut(&mut self) -> Option<&mut LayoutNode> { self.nodes.last_mut() }
 
     /// Find the next leaf in a direction.
-    fn next_in_direction(&self, _id: NodeId, _direction: FocusDirection) -> Option<NodeId> {
-        None // Simplified
-    }
+    fn next_in_direction(&self, _id: NodeId, _direction: FocusDirection) -> Option<NodeId> { None }
 
     /// Get the layout as a tree structure (for serialization).
-    pub fn to_tree(&self) -> Option<LayoutNode> {
-        // Simplified: return a single leaf
-        Some(LayoutNode::Leaf {
-            id: 1,
-            pane: Pane {
-                agent_id: None,
-                rect: Rect::full_screen(),
-            },
-        })
-    }
+    pub fn to_tree(&self) -> Option<LayoutNode> { self.nodes.first().cloned() }
 
     /// Set a custom tree (from preset or loaded state).
     pub fn set_tree(&mut self, tree: LayoutNode) {
-        let _ = tree;
-        // Simplified: just store in focused
+        self.nodes.clear();
+        self.nodes.push(tree);
     }
 
     /// Get the pane size for a node.
-    pub fn get_pane_size(&self, _node_id: NodeId) -> Option<(u16, u16)> {
+    pub fn get_pane_size(&self, node_id: NodeId) -> Option<(u16, u16)> {
+        for node in &self.nodes {
+            if let LayoutNode::Leaf { id, pane } = node {
+                if *id == node_id {
+                    return Some((pane.rect.width as u16, pane.rect.height as u16));
+                }
+            }
+        }
         None
     }
 
     /// Set an agent on a pane.
-    pub fn set_pane_agent(&mut self, _node_id: NodeId, _agent_id: String) {
-        // Simplified
+    pub fn set_pane_agent(&mut self, node_id: NodeId, agent_id: String) {
+        for node in &mut self.nodes {
+            if let LayoutNode::Leaf { id, pane } = node {
+                if *id == node_id {
+                    pane.agent_id = Some(agent_id);
+                    return;
+                }
+            }
+        }
     }
 
     /// Create a new leaf node.
     pub fn new_leaf(&mut self) -> NodeId {
         let id = self.next_id;
         self.next_id += 1;
+        self.nodes.push(LayoutNode::Leaf {
+            id,
+            pane: Pane { agent_id: None, rect: Rect::full_screen() },
+        });
         id
     }
 
     /// Get a preset layout.
     pub fn preset(name: &str) -> Option<Self> {
-        match name {
-            "default" => Some(Self::new()),
-            _ => None,
-        }
+        match name { "default" => Some(Self::new()), _ => None }
     }
 }
 

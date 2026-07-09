@@ -119,8 +119,18 @@ pub async fn get_layout(app: tauri::AppHandle) -> Result<serde_json::Value, Stri
     let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
     let layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
-    let tree = layout_guard.to_tree();
-    serde_json::to_value(&tree)
+    // Return the layout as a JSON structure with leaf panes
+    let leaves = layout_guard.leaves();
+    let mut pane_data = Vec::new();
+    for (id, pane) in leaves {
+        pane_data.push(serde_json::json!({
+            "id": id,
+            "rect": pane.rect,
+            "agent_id": pane.agent_id,
+        }));
+    }
+
+    serde_json::to_value(pane_data)
         .map_err(|e| e.to_string())
 }
 
