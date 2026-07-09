@@ -8,7 +8,6 @@ export interface Terminal {
 	write(data: string): void;
 	resize(cols: number, rows: number): void;
 	onData(callback: (data: string) => void): void;
-	onResize(callback: (resize: { cols: number; rows: number }) => void): void;
 	onScroll(callback: (position: number) => void): void;
 	onResize(callback: (resize: { cols: number; rows: number }) => void): void;
 	blur(): void;

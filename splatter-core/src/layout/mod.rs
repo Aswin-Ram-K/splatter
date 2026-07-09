@@ -499,6 +499,11 @@ impl LayoutTree {
 
 /// Serialize a LayoutNode to JSON for the frontend.
 pub fn json_serialize_node(node: &LayoutNode) -> serde_json::Value {
+    let mut id_counter: u64 = 1000000;
+    json_serialize_node_with_id(node, &mut id_counter)
+}
+
+fn json_serialize_node_with_id(node: &LayoutNode, id_counter: &mut u64) -> serde_json::Value {
     match node {
         LayoutNode::Leaf { id, pane } => serde_json::json!({
             "id": id,
@@ -512,17 +517,19 @@ pub fn json_serialize_node(node: &LayoutNode) -> serde_json::Value {
             left,
             right,
         } => {
+            let split_id = *id_counter;
+            *id_counter += 1;
             let dir_str = match direction {
                 SplitDirection::Horizontal => "horizontal",
                 SplitDirection::Vertical => "vertical",
             };
             serde_json::json!({
-                "id": 0,
+                "id": split_id,
                 "type": "split",
                 "direction": dir_str,
                 "ratio": ratio,
-                "left": json_serialize_node(left),
-                "right": json_serialize_node(right),
+                "left": json_serialize_node_with_id(left, id_counter),
+                "right": json_serialize_node_with_id(right, id_counter),
             })
         }
     }

@@ -87,19 +87,6 @@ export default function App() {
 			},
 		);
 
-		// Listen for layout-changed events
-		listen("layout-changed", () => {
-			console.log("[App] layout-changed event received");
-			invoke<any>("get_layout")
-				.then((layout: any) => {
-					console.log("[App] get_layout succeeded, layout:", layout);
-					if (layout) setRoot(layout);
-				})
-				.catch((err: unknown) => {
-					console.error("[App] get_layout failed:", err);
-				});
-		});
-
 		// Create initial single-pane layout with agent (once)
 		if (!spawnedRef.current) {
 			spawnedRef.current = true;

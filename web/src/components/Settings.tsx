@@ -84,182 +84,182 @@ export function Settings({ visible, onClose }: SettingsProps) {
 				{/* Settings Content */}
 				<div className="p-6 space-y-6">
 					{activeTab === "terminal" && (
-					<SettingsSection title="Terminal">
-						<SettingsInput
-							label="Font Family"
-							value={settings.terminal.font_family}
-							onChange={(v) =>
-								updateSettings({
-									terminal: { ...settings.terminal, font_family: v },
-								})
-							}
-						/>
-						<SettingsInput
-							label="Font Size"
-							value={settings.terminal.font_size}
-							type="number"
-							onChange={(v) =>
-								updateSettings({
-									terminal: {
-										...settings.terminal,
-										font_size: parseInt(v) || 15,
-									},
-								})
-							}
-						/>
-						<SettingsInput
-							label="Scrollback Buffer (lines)"
-							value={settings.terminal.scrollback}
-							type="number"
-							onChange={(v) =>
-								updateSettings({
-									terminal: {
-										...settings.terminal,
-										scrollback: parseInt(v) || 10000,
-									},
-								})
-							}
-						/>
-						<SettingsToggle
-							label="Cursor Blink"
-							checked={true}
-							onChange={() => {}}
-						/>
-						<SettingsToggle
-							label="Mouse Tracking"
-							checked={settings.terminal.mouse_tracking}
-							onChange={() =>
-								updateSettings({
-									terminal: {
-										...settings.terminal,
-										mouse_tracking: !settings.terminal.mouse_tracking,
-									},
-								})
-							}
-						/>
-						<SettingsToggle
-							label="Bracketed Paste"
-							checked={settings.terminal.bracketed_paste}
-							onChange={() =>
-								updateSettings({
-									terminal: {
-										...settings.terminal,
-										bracketed_paste: !settings.terminal.bracketed_paste,
-									},
-								})
-							}
-						/>
-					</SettingsSection>
-					)}
-
-					{activeTab === "agents" && (
-					<SettingsSection title="Agents">
-						<SettingsInput
-							label="Max Sessions"
-							value={settings.agents.max_sessions}
-							type="number"
-							onChange={(v) =>
-								updateSettings({
-									agents: {
-										...settings.agents,
-										max_sessions: parseInt(v) || 50,
-									},
-								})
-							}
-						/>
-						<SettingsInput
-							label="Output Buffer (MB)"
-							value={settings.agents.output_buffer_mb}
-							type="number"
-							onChange={(v) =>
-								updateSettings({
-									agents: {
-										...settings.agents,
-										output_buffer_mb: parseInt(v) || 512,
-									},
-								})
-							}
-						/>
-						<SettingsToggle
-							label="Auto Focus on Spawn"
-							checked={settings.agents.auto_focus_on_spawn}
-							onChange={() =>
-								updateSettings({
-									agents: {
-										...settings.agents,
-										auto_focus_on_spawn: !settings.agents.auto_focus_on_spawn,
-									},
-								})
-							}
-						/>
-					</SettingsSection>
-					)}
-
-					{activeTab === "notifications" && (
-					<SettingsSection title="Notifications">
-						<SettingsToggle
-							label="Enable Notifications"
-							checked={settings.notifications.enabled}
-							onChange={() =>
-								updateSettings({
-									notifications: {
-										...settings.notifications,
-										enabled: !settings.notifications.enabled,
-									},
-								})
-							}
-						/>
-						<SettingsToggle
-							label="Play Sound"
-							checked={settings.notifications.sound}
-							onChange={() =>
-								updateSettings({
-									notifications: {
-										...settings.notifications,
-										sound: !settings.notifications.sound,
-									},
-								})
-							}
-						/>
-						<SettingsInput
-							label="Coalesce Window (seconds)"
-							value={settings.notifications.coalesce_window_seconds}
-							type="number"
-							onChange={(v) =>
-								updateSettings({
-									notifications: {
-										...settings.notifications,
-										coalesce_window_seconds: parseInt(v) || 30,
-									},
-								})
-							}
-						/>
-					</SettingsSection>
-					)}
-
-					{activeTab === "plugins" && (
-					<SettingsSection title="Plugins">
-						<PluginList />
-					</SettingsSection>
-					)}
-
-					{activeTab === "hotkeys" && (
-					<SettingsSection title="Hotkeys">
-						{Object.entries(settings.hotkeys).map(([key, value]) => (
+						<SettingsSection title="Terminal">
 							<SettingsInput
-								key={key}
-								label={key
-									.replace(/_/g, " ")
-									.replace(/\b\w/g, (l) => l.toUpperCase())}
-								value={value}
+								label="Font Family"
+								value={settings.terminal.font_family}
 								onChange={(v) =>
 									updateSettings({
-										hotkeys: { ...settings.hotkeys, [key]: v },
+										terminal: { ...settings.terminal, font_family: v },
 									})
 								}
 							/>
-						))}
-					</SettingsSection>
+							<SettingsInput
+								label="Font Size"
+								value={settings.terminal.font_size}
+								type="number"
+								onChange={(v) =>
+									updateSettings({
+										terminal: {
+											...settings.terminal,
+											font_size: parseInt(v) || 15,
+										},
+									})
+								}
+							/>
+							<SettingsInput
+								label="Scrollback Buffer (lines)"
+								value={settings.terminal.scrollback}
+								type="number"
+								onChange={(v) =>
+									updateSettings({
+										terminal: {
+											...settings.terminal,
+											scrollback: parseInt(v) || 10000,
+										},
+									})
+								}
+							/>
+							<SettingsToggle
+								label="Cursor Blink"
+								checked={true}
+								onChange={() => {}}
+							/>
+							<SettingsToggle
+								label="Mouse Tracking"
+								checked={settings.terminal.mouse_tracking}
+								onChange={() =>
+									updateSettings({
+										terminal: {
+											...settings.terminal,
+											mouse_tracking: !settings.terminal.mouse_tracking,
+										},
+									})
+								}
+							/>
+							<SettingsToggle
+								label="Bracketed Paste"
+								checked={settings.terminal.bracketed_paste}
+								onChange={() =>
+									updateSettings({
+										terminal: {
+											...settings.terminal,
+											bracketed_paste: !settings.terminal.bracketed_paste,
+										},
+									})
+								}
+							/>
+						</SettingsSection>
+					)}
+
+					{activeTab === "agents" && (
+						<SettingsSection title="Agents">
+							<SettingsInput
+								label="Max Sessions"
+								value={settings.agents.max_sessions}
+								type="number"
+								onChange={(v) =>
+									updateSettings({
+										agents: {
+											...settings.agents,
+											max_sessions: parseInt(v) || 50,
+										},
+									})
+								}
+							/>
+							<SettingsInput
+								label="Output Buffer (MB)"
+								value={settings.agents.output_buffer_mb}
+								type="number"
+								onChange={(v) =>
+									updateSettings({
+										agents: {
+											...settings.agents,
+											output_buffer_mb: parseInt(v) || 512,
+										},
+									})
+								}
+							/>
+							<SettingsToggle
+								label="Auto Focus on Spawn"
+								checked={settings.agents.auto_focus_on_spawn}
+								onChange={() =>
+									updateSettings({
+										agents: {
+											...settings.agents,
+											auto_focus_on_spawn: !settings.agents.auto_focus_on_spawn,
+										},
+									})
+								}
+							/>
+						</SettingsSection>
+					)}
+
+					{activeTab === "notifications" && (
+						<SettingsSection title="Notifications">
+							<SettingsToggle
+								label="Enable Notifications"
+								checked={settings.notifications.enabled}
+								onChange={() =>
+									updateSettings({
+										notifications: {
+											...settings.notifications,
+											enabled: !settings.notifications.enabled,
+										},
+									})
+								}
+							/>
+							<SettingsToggle
+								label="Play Sound"
+								checked={settings.notifications.sound}
+								onChange={() =>
+									updateSettings({
+										notifications: {
+											...settings.notifications,
+											sound: !settings.notifications.sound,
+										},
+									})
+								}
+							/>
+							<SettingsInput
+								label="Coalesce Window (seconds)"
+								value={settings.notifications.coalesce_window_seconds}
+								type="number"
+								onChange={(v) =>
+									updateSettings({
+										notifications: {
+											...settings.notifications,
+											coalesce_window_seconds: parseInt(v) || 30,
+										},
+									})
+								}
+							/>
+						</SettingsSection>
+					)}
+
+					{activeTab === "plugins" && (
+						<SettingsSection title="Plugins">
+							<PluginList />
+						</SettingsSection>
+					)}
+
+					{activeTab === "hotkeys" && (
+						<SettingsSection title="Hotkeys">
+							{Object.entries(settings.hotkeys).map(([key, value]) => (
+								<SettingsInput
+									key={key}
+									label={key
+										.replace(/_/g, " ")
+										.replace(/\b\w/g, (l) => l.toUpperCase())}
+									value={value}
+									onChange={(v) =>
+										updateSettings({
+											hotkeys: { ...settings.hotkeys, [key]: v },
+										})
+									}
+								/>
+							))}
+						</SettingsSection>
 					)}
 				</div>
 
