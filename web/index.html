@@ -4,9 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Splatter</title>
+    <style>
+      body { margin: 0; padding: 0; background: #1a1b26; }
+      #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #a9b1d6; font-family: monospace; font-size: 14px; z-index: 9999; }
+    </style>
   </head>
   <body>
+    <div id="loading">Loading Splatter... <span id="status"></span></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Hide loading when React app mounts
+      setTimeout(() => {
+        document.getElementById('loading')?.remove();
+      }, 3000);
+      // Timeout indicator
+      setTimeout(() => {
+        const el = document.getElementById('status');
+        if (el) el.textContent = ' (timeout — check console for errors)';
+      }, 5000);
+      // Log Tauri availability
+      console.log('[Debug] window.location:', window.location.href);
+      console.log('[Debug] __TAURI__:', window['__TAURI__'] ? 'available' : 'missing');
+    </script>
   </body>
 </html>

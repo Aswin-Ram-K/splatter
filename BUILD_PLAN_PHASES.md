@@ -1,419 +1,396 @@
-# Splatter — Multi-Phase Build/Audit/Fix/Verify Plan
+# Splatter — Build, Audit, Fix & Verify Plan
 
-**Created:** 2026-07-09
-**Based on:** Full project audit (18 bugs found)
-**Goal:** Ship a working Splatter binary that launches, loads Ghostty WASM, renders panes, and accepts keyboard input
-
----
-
-## Phase 0: Environment Baseline (30 min)
-
-**Objective:** Establish a clean, verifiable starting point
-
-| Step | Action | Verification |
-|------|--------|--------------|
-| 0.1 | `cargo clean && cargo build --release` | Clean build succeeds |
-| 0.2 | `cd web && npm run build` | Frontend builds, WASM copied to `dist/` |
-| 0.3 | `cargo test --package splatter-core --lib` | All 14 tests pass |
-| 0.4 | Snapshot current state: `git add -A && git commit -m "PRE-AUDIT-BASELINE"` | Git baseline committed |
-| 0.5 | Launch app on desktop: `WAYLAND_DISPLAY=wayland-0 ./target/release/splatter` | App launches, note all errors |
-
-**Go/No-Go:** Phase 0 must complete before proceeding.
+**Last updated:** 2026-07-09  
+**Status:** Phase 0 (Audit & Stabilization) in progress
 
 ---
 
-## Phase 1: Layout Bridge — Fix BSP Tree ↔ Frontend Sync (Day 1 AM, ~3h)
+## Phase 0 — Audit & Stabilization (TODAY)
 
-**Bugs Addressed:** C2 (Flat array vs tree), H1 (Store sync), H3 (Preset not applied), M5 (Node IDs)
+**Goal:** Ensure the app launches, loads from embedded dist, shows UI (not blank), and is fully isolated from para-site.
 
-### 1.1 Backend: `get_layout()` Returns Proper BSP Tree
+### 0.1 — Confirm release build is clean
 
-**Files:** `layout_commands.rs`
+- [ ] `cargo build --release` completes with zero errors
+- [ ] `cargo test --package splatter-core --lib` — all 14 tests pass
+- [ ] `web/src` TypeScript compiles with zero errors (`npx tsc --noEmit`)
+- [ ] `web/dist` contains: `index.html`, `assets/index-*.js`, `assets/ghostty-*.js`, `ghostty-vt.wasm`
+- [ ] Binary size ≤ 10MB (release, LTO, strip)
 
-```rust
-// BEFORE: returns flat array of leaves
-serde_json::to_value(pane_data)
+**Current status:** ✅ Pass (14 tests, 0 TS errors, ~9.5MB binary)
 
-// AFTER: returns full tree with split/leaf structure
-// Build recursive tree from LayoutTree's node structure
-fn to_json_tree(node: &LayoutNode) -> serde_json::Value { ... }
-```
+### 0.2 — Verify CSP & devUrl isolation
 
-**Changes:**
+- [ ] `tauri.conf.json` CSP: NO `http://localhost:5173`
+- [ ] `devUrl` ≠ para-site port (use `http://localhost:15173` or unset)
+- [ ] Production build uses `frontendDist` (not `devUrl`) — confirmed via `tauri_protocol_url` → `tauri://localhost`
+- [ ] Runtime: zero connections from WebKit to port 5173 (verified via `/proc/PID/net/tcp`)
+- [ ] Runtime: zero connections from WebKit to port 15173
 
-- Add `to_tree_json(&self, node: &LayoutNode) -> serde_json::Value` on `LayoutTree`
-- `get_layout()` returns `{"root": <tree>}` or `null`
-- Each node: `{ "id": N, "type": "split"|"leaf", "direction": "...", "ratio": 0.5, "left": {...}, "right": {...}, "rect": {...}, "agent_id": "..." }`
+**Current status:** ✅ Pass (CSP clean, devUrl changed to 15173, no 5173 connections)
 
-### 1.2 Backend: Fix `set_preset()`
+### 0.3 — Fix blank screen / "error" display
 
-**Files:** `layout_commands.rs`
+**Symptom:** App window opens but shows blank screen with an error message.
 
-```rust
-// BEFORE: creates local preset, drops it
-let _ = preset;
+**Root cause hypotheses:**
 
-// AFTER: sets the layout
-let mut guard = layout.lock().map_err(...)?;
-*guard = preset;
-```
+1. **Ghostty WASM load failure** — `Ghostty.load("/ghostty-vt.wasm")` fails in Tauri webview → terminal doesn't render → blank pane
+2. **React crash** — a runtime JS error in `App.tsx` or a component prevents rendering
+3. **Tauri IPC failure** — `invoke()` calls fail silently → `new_pane` doesn't create any panes → blank layout
+4. **CSS/layout issue** — Tailwind not compiling → no styles → white/blank screen
 
-### 1.3 Frontend: Layout.tsx — Parse Tree Structure
+**Fix plan (execute sequentially, verify each):**
 
-**Files:** `Layout.tsx`, `layoutStore.ts`
+#### Fix 0.3a — Ensure Ghostty WASM is bundled in dist
 
-```ts
-// BEFORE: setRoot(layout) stores flat array as-is
-// AFTER: setRoot({ root: layout.root, panes: extractPanes(layout.root) })
-```
+- [ ] Verify `ghostty-vt.wasm` exists at `web/dist/ghostty-vt.wasm` (copied by Vite plugin)
+- [ ] Verify `vite.config.ts` has `copyWasmPlugin` that copies WASM to `dist/`
+- [ ] Verify `Ghostty.load("/ghostty-vt.wasm")` path is correct for Tauri `tauri://localhost` serving
 
-- Parse `{ root: { ... } }` into tree structure
-- Extract panes from leaf nodes into `panes` map
-- `renderNode()` works correctly with tree structure
+**Code locations:**
 
-### 1.4 Frontend: Use Counter Instead of Date.now()
+- `web/vite.config.ts` — manual chunking + WASM copy plugin
+- `web/src/hooks/useGhostty.ts` — `Ghostty.load("/ghostty-vt.wasm")`
 
-**Files:** `layoutStore.ts`
+#### Fix 0.3b — Add error boundary in React
 
-```ts
-let nodeIdCounter = 1000;
-const nextId = () => nodeIdCounter++;
-```
+- [ ] Wrap App in React Error Boundary component
+- [ ] Display error message in webview so user can see what's crashing
+- [ ] Log error to `console.error` and Tauri IPC
 
-**Tests:**
+**Code locations:**
 
-```bash
-cargo test --package splatter-core --lib  # 14 tests pass
-cd web && npx tsc --noEmit  # zero errors
-cd web && npm run build  # builds
-```
+- `web/src/App.tsx` — add error boundary wrapper
 
-**Verification:** Launch app → should see one pane with agent, sidebar shows agent
+#### Fix 0.3c — Verify Tauri IPC works
 
----
+- [ ] Add `console.log` in `App.tsx` `invoke()` callbacks to verify IPC
+- [ ] Check that `new_pane` returns an `agent_id`
+- [ ] Verify `agent-spawned` event fires with correct payload
+- [ ] Verify `get_layout` returns valid BSP tree
 
-## Phase 2: Ghostty WASM Loading Fix (Day 1 PM, ~2h)
+**Code locations:**
 
-**Bugs Addressed:** C1 (WASM "Connection refused"), M3 (onResize double-fire)
+- `web/src/App.tsx` — `invoke("new_pane")` and `invoke("get_layout")`
+- `web/src/stores/layoutStore.ts` — Zustand store
+- `splatter-core/src-tauri/src/layout_commands.rs` — `new_pane`, `get_layout`
 
-### 2.1 WASM Path Resolution
+#### Fix 0.3d — Verify CSS loads (Tailwind)
 
-**Files:** `useGhostty.ts`
+- [ ] Check `web/dist/assets/index-*.css` exists and has content
+- [ ] Verify `index.html` references the CSS file
+- [ ] Verify Tailwind directives in `web/src/index.css` are processed
 
-```ts
-// BEFORE: init() tries multiple paths
-await init();
+**Code locations:**
 
-// AFTER: Explicit path for Tauri environments
-const wasmPath = import.meta.env.TAURI_PLATFORM === 'linux'
-  ? '/ghostty-vt.wasm'  // Tauri serves from dist/ root
-  : undefined;
-await init(wasmPath);
-```
+- `web/src/index.css` — `@tailwind` directives
+- `web/vite.config.ts` — Tailwind plugin
+- `web/dist/index.html` — CSS link tag
 
-**Alternative approach (more robust):**
-Add a `<script src="/ghostty-vt.wasm" type="wasm">` to `index.html` so the WASM is preloaded and the module can find it via `import.meta.url`.
+### 0.4 — Launch & visual test (manual)
 
-### 2.2 Tauri CSP Update
+- [ ] Build release: `cargo tauri build` or `cargo build --release` + Vite build
+- [ ] Launch: `./target/release/splatter`
+- [ ] Verify: Window shows Splatter UI (not blank, not para-site)
+- [ ] Verify: Sidebar shows "AgentList"
+- [ ] Verify: Main area shows Ghostty terminal (not empty)
+- [ ] Verify: Status bar at bottom shows agent status
+- [ ] Verify: No errors in console (enable WebKit inspector: `WEBKIT_INSPECTOR_SERVER=127.0.0.1:9999`)
 
-**Files:** `tauri.conf.json`
+**Visual checklist:**
 
-```json
-"security": {
-  "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost; connect-src 'self' asset: https://asset.localhost tauri://localhost http://localhost:5173;"
-}
-```
-
-Add `connect-src` to allow fetch to `/ghostty-vt.wasm`.
-
-### 2.3 Fix `onResize` Double-Fire
-
-**Files:** `useGhostty.ts`
-
-```ts
-// Add initial call guard
-let initialResizeSent = false;
-term.onResize((resize) => {
-  if (initialResizeSent && onResize) {
-    onResize(resize.cols, resize.rows);
-  }
-});
-// Send initial resize explicitly once
-if (onResize && !initialResizeSent) {
-  initialResizeSent = true;
-  onResize(term.cols, term.rows);
-}
-```
-
-### 2.4 Vite Plugin: Ensure WASM in Production
-
-**Files:** `vite.config.ts`
-
-Already handles `closeBundle` → copy to `dist/`. Verify no changes needed.
-
-**Tests:**
-
-```bash
-cargo build --release  # succeeds
-# Launch on desktop → no "Could not connect to localhost" error
-# Ghostty terminal renders properly
-```
-
-**Verification:** App launches, terminal renders with cursor, no WASM errors in console
+- [ ] Dark theme background (#1a1b26)
+- [ ] Left sidebar with agent list
+- [ ] Terminal rendering with xterm-compatible chars
+- [ ] Status bar at bottom with connection status
 
 ---
 
-## Phase 3: Ghostty Input/Output Fix (Day 2 AM, ~2.5h)
+## Phase 1 — Ghostty Terminal Integration
 
-**Bugs Addressed:** C3 (writeInput broken), C4 (onData naming), H4 (Focus)
+**Goal:** Terminal renders correctly, accepts input, displays PTY output.
 
-### 3.1 Fix `writeInput` to Use Ghostty's Input API
+### 1.1 — Ghostty WASM loads and initializes
 
-**Files:** `useGhostty.ts`
+- [ ] `Ghostty.load("/ghostty-vt.wasm")` succeeds
+- [ ] `Terminal` instance created
+- [ ] `term.open(container)` renders to DOM
+- [ ] Terminal shows xterm buffer (not blank)
 
-```ts
-// BEFORE: term.write(data) — writes to display
-// AFTER: trigger input via Ghostty's input mechanism
-const writeInput = useCallback((data: Uint8Array) => {
-  if (termRef.current) {
-    // Ghostty doesn't expose direct input API, but the onData emitter
-    // IS the input channel. We need to write directly to the WASM terminal's input.
-    // Use input() method instead of write()
-    termRef.current.input(new TextDecoder().decode(data), true);
-  }
-}, []);
-```
+**Test:** Type in terminal → expect visible characters
 
-**Actually:** The Ghostty Terminal class has `input(data: string, wasUserInput: boolean)`. Since `data` is `Uint8Array`, we need to convert:
+### 1.2 — PTY input/output bridge
 
-```ts
-const writeInput = useCallback((data: Uint8Array) => {
-  if (termRef.current) {
-    const text = new TextDecoder().decode(data);
-    termRef.current.input(text, true);  // true = trigger onData
-  }
-}, []);
-```
+- [ ] User types → `onInput()` callback fires → `invoke("write_to_agent")` sent
+- [ ] Rust PTY read loop reads from slave FD → emits `agent-output` event
+- [ ] `listen("agent-output")` receives data → `writeOutput()` feeds to Ghostty
+- [ ] Terminal displays output in real-time
 
-### 3.2 Fix Focus Behavior
+**Test:** Spawn agent → expect PTY output in terminal
 
-**Files:** `GhosttyTerminal.tsx`
+### 1.3 — Terminal resize
 
-```tsx
-// BEFORE: container div gets focus
-<div ref={containerRef} tabIndex={0} ...>
+- [ ] Window resize → `onResize()` fires
+- [ ] `invoke("layout_resize")` sent to Rust
+- [ ] Rust sends `TIOCSWINSZ` ioctl to PTY
+- [ ] Terminal adjusts cols/rows
 
-// AFTER: let Ghostty's internal textarea handle focus
-// Ghostty.open() creates its own contenteditable+textarea.
-// We just need to pass focus through:
-const handleFocus = useCallback(() => {
-  // Ghostty's open() creates textarea - focus it
-  // The textarea is a child of the container
-  if (containerRef.current) {
-    const textarea = containerRef.current.querySelector('textarea');
-    if (textarea) (textarea as HTMLTextAreaElement).focus();
-  }
-}, []);
-```
-
-### 3.3 Rename `onOutput` → `onInput` in useGhostty
-
-**Files:** `useGhostty.ts`
-
-```ts
-// Renaming for clarity:
-interface UseGhosttyOptions {
-  onInput?: (data: Uint8Array) => void;  // Keyboard input FROM terminal → TO PTY
-  onResize?: (cols: number, rows: number) => void;
-}
-```
-
-Update `GhosttyTerminal.tsx` to use `onInput`.
-
-### 3.4 Fix Terminal Resize Calculation
-
-**Files:** `GhosttyTerminal.tsx`
-
-```ts
-// BEFORE: fixed pixel ratios
-cols: Math.max(10, Math.floor(rect.width / 8)),
-rows: Math.max(3, Math.floor(rect.height / 16)),
-
-// AFTER: use Ghostty's actual cell dimensions
-// Ghostty sets charWidth/charHeight on the renderer after open()
-// We'll use a more accurate estimate based on font size
-const charWidth = settings?.terminal?.font_size || 15;
-const charHeight = charWidth * 1.5;  // Typical monospace ratio
-cols: Math.max(10, Math.floor(rect.width / (charWidth * 0.6)));
-rows: Math.max(3, Math.floor(rect.height / charHeight));
-```
-
-**Tests:**
-
-```bash
-cargo test --package splatter-core --lib  # 14 tests pass
-cd web && npx tsc --noEmit  # zero errors
-```
-
-**Verification:**
-
-- Type in terminal → PTY receives input → shell responds
-- Terminal output → appears in display
-- Focus switching between panes works
+**Test:** Resize window → expect terminal to resize
 
 ---
 
-## Phase 4: Layout Store Cleanup (Day 2 PM, ~2h)
+## Phase 2 — Multi-Pane Layout
 
-**Bugs Addressed:** H2 (Duplicate IDs), H5 (Race condition), M1 (Settings), M2 (Copy-paste), M6 (Dead code)
+**Goal:** User can split panes, create new panes, close panes.
 
-### 4.1 Remove Frontend `splitPane()` from Store
+### 2.1 — BSP layout renders
 
-**Files:** `layoutStore.ts`
+- [ ] `invoke("get_layout")` returns BSP tree
+- [ ] `Layout.tsx` renders tree as CSS grid/flex panes
+- [ ] Each leaf pane has a `GhosttyTerminal` component
 
-The frontend store's `splitPane()` method creates local state that's never synced with the backend. Remove it entirely. The only way to split is via Tauri `split_pane` command (triggered from keyboard shortcuts).
+**Test:** Launch → expect single pane filling window
 
-```ts
-// REMOVE: splitPane() method from LayoutStore
-// REMOVE: setPreset() method (use Tauri command instead)
-// KEEP: splitPane that calls Tauri API
-splitPane: async (direction: "vertical" | "horizontal") => {
-  const id = get().focusedNodeId;
-  if (!id) return;
-  const newId = await invoke<number>("split_pane", {
-    direction,
-    ratio: 0.5,
-  });
-  return newId;
-},
-```
+### 2.2 — Split pane
 
-### 4.2 Fix Agent Spawn Race Condition
+- [ ] User triggers split (hotkey or UI button)
+- [ ] `invoke("split_pane", { pane_id, direction })` called
+- [ ] Rust updates `LayoutTree` with new split node
+- [ ] `layout-changed` event emitted
+- [ ] Frontend re-renders layout with split panes
 
-**Files:** `App.tsx`
+**Test:** Split horizontally/vertically → expect two panes
 
-```ts
-// Use a ref to prevent double-mount spawning
-const spawnedRef = useRef(false);
-useEffect(() => {
-  if (spawnedRef.current) return;
-  spawnedRef.current = true;
-  // ... spawn logic
-}, []);  // empty deps — only runs once
-```
+### 2.3 — Close pane
 
-### 4.3 Fix Settings UI
+- [ ] User triggers close (hotkey or UI button)
+- [ ] `invoke("close_pane", { pane_id })` called
+- [ ] Rust removes leaf from `LayoutTree`
+- [ ] Parent node promoted
 
-**Files:** `Settings.tsx`
-
-- Wrap Hotkeys section in `<SettingsSection>`
-- Remove all commented-out `<SettingsSection title="Plugins">` blocks
-- Keep single `<PluginList />` inside Plugins section
-
-### 4.4 Remove Dead Code
-
-**Files:** `main.rs`, `agent_commands.rs`
-
-```rust
-// REMOVE from invoke_handler: agent_commands::spawn_agent
-// KEEP: All other commands
-```
-
-**Tests:**
-
-```bash
-cargo test --package splatter-core --lib  # 14 tests pass
-cd web && npm run build  # builds
-```
-
-**Verification:**
-
-- Split pane creates two working terminals
-- Close pane removes one terminal
-- Settings UI renders correctly
-- No dead code warnings
+**Test:** Close pane → expect remaining pane to fill space
 
 ---
 
-## Phase 5: Release Build & Desktop Verification (Day 3, ~1h)
+## Phase 3 — Agent Management
 
-### 5.1 Final Release Build
+**Goal:** Agents spawn, run, and can be managed from UI.
+
+### 3.1 — Agent spawn
+
+- [ ] `invoke("new_pane", { profile_id })` creates pane + spawns agent
+- [ ] Agent appears in `AgentList` sidebar
+- [ ] Agent status shows (idle, running, finished)
+
+**Test:** Click "Spawn" → expect agent in list with output in terminal
+
+### 3.2 — Agent interrupt
+
+- [ ] User clicks interrupt button or presses hotkey
+- [ ] `invoke("interrupt_agent", { agent_id })` called
+- [ ] Rust sends `SIGINT` to agent process group
+
+**Test:** Interrupt running agent → expect process to stop
+
+### 3.3 — Agent pin / unpin
+
+- [ ] `invoke("pin_agent", { agent_id })` / `invoke("unpin_agent", { agent_id })`
+- [ ] Agent persists in pinned list
+- [ ] Pinned agents shown at top of sidebar
+
+**Test:** Pin an agent → expect it stays after restart
+
+---
+
+## Phase 4 — Plugin System
+
+**Goal:** Plugins load from manifest, hooks fire correctly.
+
+### 4.1 — Plugin manifest
+
+- [ ] `plugin_manifest.yaml` in `~/.config/splatter/plugins/`
+- [ ] Plugin host loads all plugins from manifest
+
+**Test:** Place plugin manifest → expect plugin listed in Settings
+
+### 4.2 — Plugin hooks
+
+- [ ] `on_agent_output` hook fires when PTY output received
+- [ ] `on_hotkey` hook fires for registered hotkeys
+- [ ] `on_status_change` hook fires when agent status changes
+
+**Test:** Trigger hook → expect plugin to receive event
+
+### 4.3 — Plugin toggle
+
+- [ ] Settings UI shows plugin list
+- [ ] Toggle enable/disable plugin
+- [ ] `toggle_plugin` command updates plugin state
+
+**Test:** Disable plugin → expect it no longer receives events
+
+---
+
+## Phase 5 — Settings & Config
+
+**Goal:** Settings persisted to `~/.config/splatter/config.toml`.
+
+### 5.1 — Settings UI
+
+- [ ] Settings modal opens/closes
+- [ ] Terminal settings tab (font, size, theme)
+- [ ] Agent settings tab (default profile, working dir)
+- [ ] Hotkeys tab (rebindable keys)
+- [ ] Plugins tab (plugin list with toggles)
+
+**Test:** Open settings → expect tabs with controls
+
+### 5.2 — Config persistence
+
+- [ ] `save_config` command writes to TOML
+- [ ] `get_config` command reads from TOML
+- [ ] Config survives app restart
+
+**Test:** Change setting → restart app → expect setting persisted
+
+---
+
+## Phase 6 — Notifications & Tray
+
+**Goal:** Desktop notifications and system tray integration.
+
+### 6.1 — Notifications
+
+- [ ] `NotificationSender` fires notification on agent event
+- [ ] System notification appears (GNOME/KDE)
+- [ ] Settings allow notification config
+
+**Test:** Agent finishes → expect notification
+
+### 6.2 — System tray
+
+- [ ] Tray icon shows (colored based on status)
+- [ ] Tooltip shows agent counts
+- [ ] Quick actions: open window, quit
+
+**Test:** Launch app → expect tray icon
+
+---
+
+## Phase 7 — Packaging & Distribution
+
+**Goal:** Build `.deb` and `.AppImage` for Linux.
+
+### 7.1 — DEB package
+
+- [ ] `cargo tauri build` produces `.deb`
+- [ ] `.deb` installs correctly on Ubuntu/Debian
+- [ ] Desktop shortcut created
+- [ ] Icons embedded in package
+
+**Test:** Install `.deb` → expect app in menu + desktop shortcut
+
+### 7.2 — AppImage
+
+- [ ] `cargo tauri build` produces `.AppImage`
+- [ ] AppImage runs on any Linux distro
+- [ ] Icon shows in AppImage
+
+**Test:** Run `.AppImage` → expect app launches
+
+### 7.3 — ISO (bonus)
+
+- [ ] Custom ISO with Splatter pre-installed
+- [ ] ISO boots to Splatter desktop
+
+**Status:** Out of scope for v1
+
+---
+
+## Verification Checklist
+
+### Build Verification
+
+- [ ] `cargo build --release` ✅
+- [ ] `cargo test --package splatter-core --lib` ✅ (14 tests pass)
+- [ ] `web/src` TypeScript: zero errors ✅
+- [ ] `web/dist` built ✅
+- [ ] Binary ~9.5MB ✅
+
+### Runtime Verification
+
+- [ ] App launches ✅
+- [ ] NOT connecting to para-site (port 5173) ✅
+- [ ] NOT connecting to devUrl (port 15173) ✅
+- [ ] Loading from embedded dist (`tauri://localhost`) ✅
+- [ ] UI renders (not blank) ⏳ **NEEDS MANUAL TEST**
+- [ ] Terminal renders ⏳ **NEEDS MANUAL TEST**
+- [ ] Input works ⏳ **NEEDS MANUAL TEST**
+- [ ] PTY output works ⏳ **NEEDS MANUAL TEST**
+- [ ] Split pane works ⏳ **NEEDS MANUAL TEST**
+- [ ] Agent spawn works ⏳ **NEEDS MANUAL TEST**
+- [ ] Settings persist ⏳ **NEEDS MANUAL TEST**
+- [ ] Notifications fire ⏳ **NEEDS MANUAL TEST**
+- [ ] Tray icon shows ⏳ **NEEDS MANUAL TEST**
+- [ ] `.deb` installs ⏳ **NEEDS MANUAL TEST**
+
+---
+
+## Files Modified (Recent)
+
+| File | Change | Status |
+|------|--------|--------|
+| `splatter-core/src-tauri/tauri.conf.json` | CSP cleaned, devUrl changed to 15173 | ✅ |
+| `web/src/hooks/useGhostty.ts` | WASM load fixed, fallback removed | ✅ |
+| `web/src/components/Ghostty/GhosttyTerminal.tsx` | Terminal wrapper | ✅ |
+| `web/src/App.tsx` | Error boundary + debug logs | 🔄 In progress |
+| `web/tsconfig.json` | `skipLibCheck` for deprecated warning | ✅ |
+| `web/src/vite-env.d.ts` | CSS type declarations | ✅ |
+| `splatter-core/src/agent/mod.rs` | PTY read loop, drain_outputs | ✅ |
+| `splatter-core/src/layout/mod.rs` | Vec-based BSP tree, presets | ✅ |
+| `splatter-core/src-tauri/src/main.rs` | PTY background task | ✅ |
+| `splatter-core/src-tauri/src/agent_commands.rs` | write_to_agent, list_agents | ✅ |
+| `splatter-core/src-tauri/src/layout_commands.rs` | new_pane, split_pane, close_pane | ✅ |
+
+---
+
+## Known Issues
+
+### Critical (Blocking)
+
+1. **Blank screen / error display** — App launches but UI doesn't render. Need to enable WebKit inspector to see JS errors.
+   - **Fix:** Enable `WEBKIT_INSPECTOR_SERVER=127.0.0.1:9999`, then open `chrome://inspect` to see JS errors
+   - **OR:** Add React error boundary to display errors in the webview
+
+### High
+
+2. **Ghostty WASM load** — May fail if `/ghostty-vt.wasm` path doesn't resolve in `tauri://localhost`
+   - **Fix:** Verify WASM is at `web/dist/ghostty-vt.wasm` and accessible via `tauri://localhost/ghostty-vt.wasm`
+
+2. **Tailwind CSS** — May not compile if PostCSS config is missing
+   - **Fix:** Verify `postcss.config.js` exists and `tailwindcss` is installed
+
+### Medium
+
+4. **Agent spawn** — May fail if `pi-agent` profile doesn't exist
+   - **Fix:** Verify profile file exists at `resources/profiles/pi-agent.yaml`
+
+2. **PTY read loop** — May hang if FD handling is incorrect
+   - **Fix:** Verify `rustix::fd::OwnedFd` for PTY master/slave
+
+3. **Layout sync** — Rust tree and React tree may desync
+   - **Fix:** Ensure `get_layout` returns complete BSP tree after every change
+
+---
+
+## Git Commands to Track Progress
 
 ```bash
-cd /home/zer0null/projects/herdr-web-dash/splatter
-cargo build --release
-cargo clippy --package splatter-core  # zero warnings (or documented)
-cd web && npm run build
-```
-
-### 5.2 Desktop Integration
-
-```bash
-# Verify desktop shortcut
-ls -la ~/.local/share/applications/splatter.desktop
-
-# Launch on display
-WAYLAND_DISPLAY=wayland-0 DISPLAY=:0 ./target/release/splatter &
-
-# Verify process
-ps aux | grep splatter
-```
-
-### 5.3 E2E Functional Tests
-
-| Test | Expected |
-|------|----------|
-| App launches | No WASM errors, terminal renders |
-| Single pane | Agent running, shell prompt visible |
-| Type `ls` | Output appears in terminal |
-| Split pane (Ctrl+Shift+E) | Two panes appear |
-| Type in second pane | Shell prompt, accepts input |
-| Close pane (Ctrl+D) | Returns to single pane |
-| Settings opens | Modal renders, tabs work |
-| Agent list sidebar | Shows running agents |
-| Status bar | Counts correct |
-
-### 5.4 Git Commit
-
-```bash
+# After each phase, commit:
 git add -A
-git commit -m "fix: Layout bridge, WASM loading, Ghostty input/output fixes
+git commit -m "Phase X: <description>"
 
-- Fix get_layout() to return BSP tree structure
-- Fix WASM path resolution for Tauri production
-- Fix Ghostty writeInput → term.input() for PTY writes
-- Remove frontend splitPane() (use Tauri API)
-- Fix settings UI (hotkeys section, dead code removal)
-- Fix agent spawn race condition
-
-Addresses: C1-C4, H1-H5, M1-M6"
+# Push after approval:
+git push origin main
 ```
-
----
-
-## 📋 Summary Table
-
-| Phase | Duration | Bugs Fixed | Risk Level |
-|-------|----------|------------|------------|
-| 0: Environment Baseline | 30 min | — | None |
-| 1: Layout Bridge | 3h | C2, H1, H3, M5 | Low |
-| 2: WASM Loading | 2h | C1, M3 | Medium |
-| 3: Input/Output | 2.5h | C3, C4, H4, M4 | Medium |
-| 4: Store Cleanup | 2h | H2, H5, M1, M2, M6 | Low |
-| 5: Build & Verify | 1h | L1-L3 (cleanup) | Low |
-| **Total** | **~11h** | **17/18** | **Low-Medium** |
-
-**Remaining:** L1-L3 (unused code removal, Clippy warnings) — can be done as cleanup after Phase 5.
-
----
-
-## 🚦 Go/No-Go Checkpoints
-
-| Checkpoint | Condition | Action if Fail |
-|------------|-----------|----------------|
-| Pre-Phase 1 | Clean build, 14 tests | Fix build before proceeding |
-| Post-Phase 1 | `get_layout()` returns tree, layout renders | Redesign tree serialization |
-| Post-Phase 2 | WASM loads, no console errors | Investigate Tauri CSP/asset serving |
-| Post-Phase 3 | Keyboard input reaches PTY, output displays | Fix Ghostty input handler |
-| Post-Phase 4 | Split/close panes works from UI | Debug Tauri ↔ frontend sync |
-| Post-Phase 5 | App launches on desktop, terminal works | Ship as is, fix remaining later |

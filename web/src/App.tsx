@@ -20,10 +20,27 @@ export default function App() {
 	const setPaneAgent = useLayoutStore((s) => s.setPaneAgent);
 	const spawnedRef = useRef(false);
 
+	// Debug: log app initialization
 	useEffect(() => {
+		console.log("[App] Initializing...");
+		console.log("[App] location:", window.location.href);
+		console.log("[App] document ready:", document.readyState);
+
+		// Debug: verify Tauri IPC is available
+		if (typeof (window as any).__TAURI__ !== "undefined") {
+			console.log("[App] Tauri API available");
+		} else {
+			console.warn("[App] Tauri API NOT available — running in browser?");
+		}
+	}, []);
+
+	useEffect(() => {
+		console.log("[App] useEffect triggered");
+
 		// Load profiles from Tauri backend
 		invoke<string[]>("list_profiles")
 			.then((profiles: string[]) => {
+				console.log("[App] list_profiles succeeded, profiles:", profiles);
 				listProfiles(
 					profiles.map((id) => ({
 						id,
@@ -35,12 +52,15 @@ export default function App() {
 					})),
 				);
 			})
-			.catch(console.error);
+			.catch((err: unknown) => {
+				console.error("[App] list_profiles failed:", err);
+			});
 
 		// Set up agent-spawned event listener
 		listen(
 			"agent-spawned",
 			(event: { payload: { agent_id: string; layout_node_id?: number } }) => {
+				console.log("[App] agent-spawned:", event.payload);
 				const { agent_id, layout_node_id } = event.payload;
 				// Create agent state
 				addAgent({
@@ -69,18 +89,24 @@ export default function App() {
 
 		// Listen for layout-changed events
 		listen("layout-changed", () => {
+			console.log("[App] layout-changed event received");
 			invoke<any>("get_layout")
 				.then((layout: any) => {
+					console.log("[App] get_layout succeeded, layout:", layout);
 					if (layout) setRoot(layout);
 				})
-				.catch(console.error);
+				.catch((err: unknown) => {
+					console.error("[App] get_layout failed:", err);
+				});
 		});
 
 		// Create initial single-pane layout with agent (once)
 		if (!spawnedRef.current) {
 			spawnedRef.current = true;
+			console.log("[App] Creating initial pane...");
 			invoke<string>("new_pane", { profile_id: "pi-agent" })
 				.then((agent_id: string) => {
+					console.log("[App] new_pane succeeded, agent_id:", agent_id);
 					addAgent({
 						id: agent_id,
 						profile_id: "pi-agent",
@@ -98,7 +124,9 @@ export default function App() {
 						tags: [],
 					});
 				})
-				.catch(console.error);
+				.catch((err: unknown) => {
+					console.error("[App] new_pane failed:", err);
+				});
 		}
 	}, [listProfiles, setRoot, addAgent, setPaneAgent]);
 
