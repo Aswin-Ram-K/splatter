@@ -1,7 +1,7 @@
 # Splatter — Build, Audit, Fix & Verify Plan
 
 **Last updated:** 2026-07-09  
-**Status:** Phase 0 in progress
+**Status:** Phase 0 ✅ COMPLETE — Phase 1 in progress
 
 ---
 
@@ -18,10 +18,14 @@ Structure: **Audit → Fix → Build → Verify** for each phase.
 
 **Goal:** Fix the 3 critical layout bugs that break pane operations.
 
-### 0.1 — Fix `close()` to use `_node_id`
+### 0.1 ✅ `close()` — FIXED
 
-**File:** `splatter-core/src/layout/mod.rs:234`  
-**Bug:** Always pops last node, ignores which pane to close.
+**File:** `splatter-core/src/layout/mod.rs`  
+**Bug:** Always popped last node, ignored `_node_id`.  
+**Fix:** Implemented `remove_leaf_recursive()` that traverses the BSP tree, finds the leaf by ID, and promotes its sibling (removing the Split parent when one leaf is gone).
+
+**Tests added:** `test_close_by_id`, `test_close_single_pane_fails`, `test_close_removes_and_promotes`
+
 
 ```rust
 // CURRENT (broken):
@@ -76,10 +80,14 @@ pub fn close(&mut self, node_id: NodeId) -> bool {
 - [ ] Close last pane → window closes (single pane → nothing)
 - [ ] Close one pane in a split → other pane fills the space
 
-### 0.2 — Implement `get_node()` and `get_node_mut()`
+### 0.2 ✅ `get_node()` / `get_node_mut()` — FIXED
 
-**File:** `splatter-core/src/layout/mod.rs:283-286`  
-**Bug:** Always returns `None`.
+**File:** `splatter-core/src/layout/mod.rs`  
+**Bug:** Stubs always returned `None`.  
+**Fix:** Implemented recursive `find_node_recursive()` / `find_node_mut_recursive()` that traverse the BSP tree by matching leaf IDs.
+
+**Tests added:** `test_get_node`
+
 
 ```rust
 // FIXED:
@@ -153,7 +161,23 @@ Some(LayoutNode::Split { direction: _, ratio: _, left, right }) => {
 - [ ] Split a split pane → expect 3 panes (not 2)
 - [ ] Right child gets correct agent_id (not left's)
 
-### 0.4 — Regenerate Tauri schemas
+### 0.4 ✅ Additional fixes — COMPLETE
+
+- `leaf_count()` / `leaf_ids()` — now traverse tree recursively
+- `new_leaf()` — now splits the root instead of appending to flat list
+- `get_pane_size()` / `set_pane_agent()` / `leaves()` — now traverse tree
+- `layout_commands.rs` — updated caller for new `set_pane_agent(&str)` signature
+- Full build verified: `cargo build --release` ✓
+
+### Test Results
+
+```
+running 20 tests
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+All 14 original tests + 6 new tests pass.
+
 
 ```bash
 cd splatter-core/src-tauri && cargo tauri dev
