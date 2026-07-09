@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Build web
+        run: npm run build
+        working-directory: web
+
+      - name: Install Rust dependencies
+        run: cargo fetch
+        working-directory: splatter-core
+
+      - name: Run Rust tests
+        run: cargo test --lib
+        working-directory: splatter-core
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+        working-directory: splatter-core
+
+      - name: Check Rust clippy
+        run: cargo clippy -- -D warnings
+        working-directory: splatter-core
+
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Build web
+        run: npm run build
+        working-directory: web
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libssl1.1 \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Build Tauri app
+        run: cargo build --release
+        working-directory: splatter-core/src-tauri
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: splatter-build
+          path: |
+            splatter-core/src-tauri/target/release/splatter

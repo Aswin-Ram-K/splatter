@@ -1,0 +1,25 @@
+[package]
+name = "splatter"
+version = "0.1.0"
+edition = "2021"
+description = "Splatter — Agent-Aware Terminal Multiplexer"
+
+[dependencies]
+splatter-core = { path = "../../splatter-core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+nix = { version = "0.29", features = ["signal"] }
+env_logger = "0.11"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

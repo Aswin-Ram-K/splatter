@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+target/
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Config
+config.toml
+profiles/*.yaml
+
+# Logs
+*.log
+logs/
+
+# Tauri
+src-tauri/target/
+src-tauri/releases/
+
+# Coverage
+coverage/
+*.lcov
+
+# Cache
+.pi-lens/
+.pi/
+.lean-ctx/

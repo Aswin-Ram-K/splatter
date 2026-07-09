@@ -1,0 +1,9 @@
+id: "pi-agent"
+name: "Pi Agent"
+description: "Pi agent preset — runs Pi in interactive mode"
+command: "pi"
+args: []
+env: {}
+scrollback: 10000
+cols: 80
+rows: 24

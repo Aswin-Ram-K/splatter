@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/components/AgentList.tsx","./src/components/Layout.tsx","./src/components/StatusBar.tsx","./src/components/Ghostty/GhosttyTerminal.tsx","./src/hooks/useGhostty.ts","./src/stores/agentStore.ts","./src/stores/layoutStore.ts","./src/stores/settingsStore.ts","./src/types/ghostty-web.d.ts","./src/types/index.ts"],"version":"5.9.3"}

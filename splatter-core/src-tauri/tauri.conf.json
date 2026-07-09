@@ -1,0 +1,32 @@
+{
+  "productName": "Splatter",
+  "version": "0.1.0",
+  "identifier": "com.splatter.app",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Splatter",
+        "width": 1280,
+        "height": 720,
+        "resizable": true,
+        "transparent": false,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost; style-src 'self' 'unsafe-inline';"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage"],
+    "icon": []
+  },
+  "plugins": {}
+}

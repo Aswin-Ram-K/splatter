@@ -1,775 +1,1196 @@
-# Splatter — Standalone CMUX-Style Desktop App
+# Splatter — Standalone Agent-Aware Terminal Multiplexer
 
-The product name is **Splatter** (capitalized in UI, lowercase in paths and package names).
-The project directory is `splatter/`. All references to "herdr-native" in this doc have been
-renamed to "Splatter".
+## Product Vision
 
-## Vision
+**Splatter** is a standalone, agent-aware terminal multiplexer — a native desktop application
+that provides a CMUX-style terminal interface with full agent lifecycle management. It launches
+agents into real terminal panes, tracks their state in real time, and provides a complete
+agent-aware control surface. No browser, no herdr dependency, no web dashboard — just a native
+desktop app.
 
-A standalone, native-feeling desktop application that provides a Herdr terminal multiplexer
-interface (like tmux/CMUX for agents) with an agent-aware notification panel, distributed as a
-single desktop package for Linux (first), macOS, and Windows.
+**Target:** Linux v1 (GTK/WebKitGTK). macOS and Windows follow.
 
-No browser. No separate bridge process. No `localhost:8787` to visit. One binary, one icon in
-the dock/panel/taskbar, and the app lives in its own window.
+## Decision Log
 
-## Architecture Overview
+| # | Decision | Choice |
+|---|----------|--------|
+| 1 | Product scope | **Standalone meta-Herder** — no herdr dependency, rebuild from scratch |
+| 2 | Agent model | **Launcher mode** — Splatter launches agents into panes |
+| 3 | Remote sessions | **Local only for v1** — SSH remote later |
+| 4 | Agent presets | **Pi agent + master AI stack** — two primary B1 focuses |
+| 5 | Terminal rendering | **Ghostty Web in WebView** — proven, zero dev time on VT emulation |
+| 6 | UI framework | **React + TypeScript** — same as herdr-web |
+| 7 | Multi-window | **Multi-window per screen** — each monitor gets its own window |
+| 8 | Agent-aware UI | **Full meta-Herder** — status dots, history, timeline, stats, handoff, notes |
+| 9 | System tray | **Full status panel** — colored icon, tooltip with counts, menu with pin/quick actions |
+| 10 | Notifications | **Full suite with user control** — all triggers configurable |
+| 11 | Global hotkeys | **Navigation + actions + agent** — all shortcuts plus agent control |
+| 12 | Layout presets | **Built-in + custom** — ship presets AND let users save/export/import |
+| 13 | Agent resume | **Resume + replay** — one-click restart + activity replay |
+| 14 | Terminal extras | **Find + history + multi-cursor** — Ctrl+F, configurable scrollback, multi-pane input |
+| 15 | Themes | **Dark only** — single dark theme, minimal complexity |
+| 16 | Plugin system | **Full plugin marketplace** — sandboxed, manifest, GitHub-hosted marketplace |
+| 17 | Auto-updater | **Yes + crash reporting** — Tauri updater + Sentry |
+| 18 | Multi-monitor | **Independent windows** — each monitor has its own window, separate or shared session |
+| 19 | Settings | **Full UI + import/export** — structured config.toml + in-app panel + migrate |
+| 20 | Pinning | **Pin + groups + filters + sort** — full sidebar organization |
+| 21 | Platform (v1) | **Linux only** — .deb/.AppImage |
+| 22 | CI/CD | **CI + package managers** — GitHub Actions + Homebrew + AUR + winget |
+
+## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                       Splatter (Tauri App)                       │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │                   WebView (Web UI Layer)                   │  │
-│  │                                                            │  │
-│  │  ┌──────────────────────────────────────────────────────┐  │  │
-│  │  │           Reused herdr-web React UI                  │  │  │
-│  │  │                                                      │  │  │
-│  │  │  ┌─────────┐  ┌──────────────────────────────────┐  │  │  │
-│  │  │  │ Sidebar │  │       Terminal Grid (CMUX)       │  │  │  │
-│  │  │  │         │  │                                   │  │  │  │
-│  │  │  │ 🤖 Agent│  │  ┌────────┐  ┌────────┐         │  │  │  │
-│  │  │  │ Status │  │  │ Pane 1 │  │ Pane 2 │         │  │  │  │
-│  │  │  │ Panel │  │  │ (bash) │  │ (Claude) │         │  │  │  │
-│  │  │  │         │  │  └────────┘  └────────┘         │  │  │  │
-│  │  │  │         │  │  ┌────────┐  ┌────────┐         │  │  │  │
-│  │  │  └─────────┘  │  │ Pane 3 │  │ Notes  │         │  │  │  │
-│  │  │               │  │  └────────┘  └────────┘         │  │  │  │
-│  │  │               └──────────────────────────────────┘  │  │  │
-│  │  │                                                      │  │  │
-│  │  └──────────────────────────────────────────────────────┘  │  │
-│  │                                                            │  │
-│  │  ┌──────────────────────────────────────────────────────┐  │  │
-│  │  │  Native Shell (status bar + system tray)              │  │  │
-│  │  └──────────────────────────────────────────────────────┘  │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │               Rust Core (Tauri Commands)                   │  │
-│  │                                                            │  │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐  │  │
-│  │  │ Herdr IPC│ │ Terminal │ │Notif.    │ │ Hotkey/     │  │  │
-│  │  │ Manager  │ │ Renderer │ │ Engine   │ │ Native API  │  │  │
-│  │  │          │ │          │ │          │ │             │  │  │
-│  │  │• Unix    │ │• libghost│ │• macOS   │ │• Global     │  │  │
-│  │  │  sockets │ │ ty-vt    │ │  badges  │ │   hotkeys   │  │  │
-│  │  │• Named   │ │• Layout  │ │• Linux   │ │• Native     │  │  │
-│  │  │  pipes   │ │   mgmt   │ │  Growl   │ │   menus     │  │  │
-│  │  │• Proto  │ │• ANSI    │ │• Win     │ │• System     │  │  │
-│  │  │  bridge  │ │   render │ │  Toast   │ │   tray      │  │  │
-│  │  └──────────┘ └──────────┘ └──────────┘ └─────────────┘  │  │
-│  └────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Splatter (Tauri 2 App)                               │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │  Window 1 (Monitor 1)                              Window 2 (Monitor 2) ││
+│  │  ┌─────────────┬──────────────────────────────────────────────────┐    ││
+│  │  │ Sidebar     │  Terminal Grid (Pane Grid)                        ││    ││
+│  │  │             │                                                   ││    ││
+│  │  │ 🟢 Pi A     │  ┌──────────┐  ┌──────────┐  ┌──────────┐       ││    ││
+│  │  │ 🟡 Pi B     │  │ Pane 1   │  │ Pane 2   │  │ Pane 3   │       ││    ││
+│  │  │ 🔵 Pi C     │  │ (bash)   │  │ (Claude) │  │ (agent)  │       ││    ││
+│  │  │ ⚪ Pi D     │  │          │  │          │  │          │       ││    ││
+│  │  │             │  └──────────┘  └────┬─────┘  └──────────┘       ││    ││
+│  │  │ ──────────  │  ┌──────────────────┴──┐   ┌────────────────┐   ││    ││
+│  │  │ Pinned      │  │ Pane 4              │   │ Agent Notes    │   ││    ││
+│  │  │ 🟢 Pi E     │  │ (working - 12min)   │   │ (collapsible)  │   ││    ││
+│  │  │ 🟡 Pi F     │  └─────────────────────┘   └────────────────┘   ││    ││
+│  │  │ ──────────  │                                                   ││    ││
+│  │  │ Groups      │  ┌────────────────────────────────────────────┐  ││    ││
+│  │  │ 🏠 Project  │  │ Status Bar: 3 working · 2 blocked · 1 idle │  ││    ││
+│  │  │ 🏠 Work     │  └────────────────────────────────────────────┘  ││    ││
+│  │  │             └─────────────────────────────────────────────────┘    ││
+│  │  └───────────────────────────────────────────────────────────────────┘│
+│  │                                                                             │
+│  └─────────────────────────────────────────────────────────────────────────────┘│
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                    Rust Core (Tauri Commands + State)                   ││
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  ││
+│  │  │ Agent    │ │ Layout   │ │ Tray     │ │ Hotkey   │ │ Plugin     │  ││
+│  │  │ Manager  │ │ Engine   │ │ Manager  │ │ Registry │ │ Host       │  ││
+│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────────────┘  ││
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  ││
+│  │  │ Notify   │ │ Auto-    │ │ Settings │ │ Crash    │ │ Plugin     │  ││
+│  │  │ Engine   │ │ Updater  │ │ Store    │ │ Reporter │ │ Marketplace│  ││
+│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────────────┘  ││
+│  └─────────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
-
-## Why Tauri?
-
-Tauri gives us the best of both worlds:
-
-1. **Reuse the existing React/TypeScript UI** — the herdr-web codebase (TerminalView, agent panel,
-   split layout, notes, etc.) runs inside the embedded WebView. Minimal changes needed.
-2. **Native Rust core** — all actual herdr socket communication, terminal rendering, and OS
-   integration lives in Rust, exposed to the WebView via Tauri commands.
-3. **Cross-platform** — Linux (GTK/WebKitGTK), macOS (AppKit/WKWebView), Windows (Win32/WebView2)
-   with one codebase.
-4. **Small binary** — ~5-10 MB vs Electron's ~150+ MB.
-5. **Rust-first** — fits naturally with the existing herdr-compat vendor crate.
 
 ## Component Breakdown
 
-### 1. Terminal Rendering (Native)
+### 1. Tauri 2 App Shell
 
-The current bridge sends raw terminal frames via WebSocket to the browser's Ghostty-based renderer.
-For native, we replace the WebSocket bridge with direct Rust→WebUI terminal output.
+**Tech:** Tauri 2.x (Rust + WebView)
 
-**Approach: embed Ghostty's libghostty-vt via Rust**
+- **Frontend:** React 19 + TypeScript + Vite
+- **Backend:** Rust (Tauri commands, Tauri plugins)
+- **WebView:** WebKitGTK (Linux v1)
+- **Binary:** ~10-20 MB (WebView bundled)
 
-The herdr-compat already vendors herdr's protocol which itself uses libghostty-vt. We extend the
-vendor crate to expose the VT emulation + rendering layer:
+**Key Tauri 2 plugins:**
 
-```rust
-// In vendor/herdr-compat/src/lib.rs:
-pub mod terminal; // New: VT emulation + rendering
+- `tauri-plugin-shell` — spawn processes (agent launcher)
+- `tauri-plugin-global-shortcut` — system-wide hotkeys
+- `tauri-plugin-store` — persistent settings
+- `tauri-plugin-notification` — desktop notifications
+- `tauri-plugin-updater` — auto-updater
+- Custom plugin: `tauri-plugin-tray` — system tray management
+- Custom plugin: `tauri-plugin-plugin-host` — plugin system
 
-// Usage from Rust core:
-use herdr_compat::terminal::{TerminalEngine, RenderTarget};
+**Linux-specific:**
 
-let engine = TerminalEngine::new(cols, rows);
-engine.feed(&ansi_bytes);          // Feed raw VT escape sequences
-let bitmap = engine.render();      // Get rendered frame (RGBA)
-// Or: let text = engine.text_content();  // For selection/copy
+- GTK4 / WebKitGTK 2.44+
+- Wayland and X11 support (Tauri handles both)
+- Desktop entry for `.local/share/applications`
+- AppIcon for system tray
+
+### 2. Agent Launcher System
+
+Splatter is a launcher — it starts agents in real PTY panes.
+
+**Agent profiles** are defined in `~/.config/splatter/agents/`:
+
+```yaml
+# ~/.config/splatter/agents/pi.yaml
+name: Pi
+display_name: "Pi Agent"
+icon: "🤖"
+command: "pi"
+args: []
+env:
+  PI_TOKEN: "${env:PI_TOKEN}"
+  PI_MODEL: "${env:PI_MODEL}"
+cwd: "${workspace}"
+working_dir_behavior: inherit
+detect_rules:
+  - pattern: "pi-agent"
+    agent_type: "pi"
+    confidence: 0.95
+ui_features:
+  resume: true
+  interrupt: true
+  continue: true
+  handoff: true
+  notes: true
+status_mapping:
+  idle: "idle"
+  working: "working"
+  blocked: "blocked"
+  done: "done"
+  error: "blocked"
 ```
 
-**Fallback:** If libghostty-vt FFI isn't practical, use `alacritty_terminal` (Rust VT emulator)
-or implement a simple VT parser with `crossterm`/`termwiz` for basic rendering, then layer on
-true color / mouse / bracketed paste later.
+**Launch flow:**
 
-**Layout management:** The CMUX split layout (like tmux panes) is handled by the existing layout
-engine in the bridge. We expose it as a Rust struct that computes pane rectangles, and the WebView
-renders them as positioned terminal containers.
+1. User clicks "New Agent" → agent profile picker
+2. User selects "Pi" → Splatter spawns `pi` in a new PTY pane
+3. Splatter detects the agent type from launch command + patterns
+4. Agent status events flow through the agent manager
 
-### 2. Herdr IPC Layer (Rust)
+**Agent lifecycle:**
 
-Replace the HTTP+WebSocket bridge with direct socket communication:
+- `launching` → `working` → `idle` / `blocked` / `done` / `error`
+- Each status transition is logged with timestamp
+- Transitions are emitted as events to the UI and notifications engine
 
-```rust
-pub struct HerdrSession {
-    socket_path: PathBuf,
-    stream: LocalStream,           // From interprocess crate (already vendored)
-    terminal_sessions: HashMap<String, TerminalSession>,
-    agent_activity: AgentActivityStore,
-    pane_selection: RwLock<Option<String>>,
+### 3. Ghostty Web Terminal Rendering
+
+**Tech:** `ghostty-web` npm package in Tauri WebView
+
+ghostty-web provides a VT100 terminal emulator via Emscripten that runs in JavaScript. It:
+
+- Emulates xterm/VT100 completely (true color, mouse protocol, bracketed paste, OSC 52)
+- Renders to canvas (via libghostty via Emscripten)
+- Exposes an Xterm-compatible API for input/output
+
+**Integration:**
+
+```typescript
+// In the React app — each terminal pane
+import { GhosttyTerminal } from "@ghostty-web";
+
+function TerminalPane({ terminalId, cols, rows }: Props) {
+  const ghosttyRef = useRef<GhosttyTerminal>(null);
+  const inputRef = useRef<HTMLDivElement>(null);
+
+  // Ghostty emits output → forward to Rust via Tauri commands
+  useEffect(() => {
+    const handler = (data: string) => {
+      invoke('terminal_input', { terminalId, data });
+    };
+    ghosttyRef.current?.on('data', handler);
+    return () => ghosttyRef.current?.off('data', handler);
+  }, []);
+
+  // Ghostty receives input from Rust → feed to terminal
+  useEffect(() => {
+    const handler = (data: string) => {
+      ghosttyRef.current?.write(data);
+    };
+    // Listen to Tauri events for terminal output
+    window.addEventListener('terminal-output', handler);
+    return () => window.removeEventListener('terminal-output', handler);
+  }, []);
+
+  return (
+    <div className="terminal-container">
+      <GhosttyTerminal
+        ref={ghosttyRef}
+        cols={cols}
+        rows={rows}
+        fontFamily="JetBrains Mono"
+        fontSize={14}
+        theme={darkTheme}
+        backgroundOpacity={1}
+        cursorBlink={true}
+        cursorStyle="block"
+      />
+    </div>
+  );
 }
-
-impl HerdrSession {
-    // Connect to herdr daemon
-    pub fn connect(socket_path: &Path) -> Result<Self>;
-    
-    // Spawn terminal session (attach to pane)
-    pub fn attach_terminal(&mut self, terminal_id: &str, cols: u16, rows: u16) -> Result<TerminalSession>;
-    
-    // Send input to active terminal
-    pub fn send_input(&self, terminal_id: &str, data: &[u8]) -> Result<()>;
-    
-    // Resize terminal
-    pub fn resize_terminal(&self, terminal_id: &str, cols: u16, rows: u16) -> Result<()>;
-    
-    // Subscribe to structural events (workspaces/tabs/panes)
-    pub fn subscribe_events(&self, subscriptions: &[Subscription]) -> Result<EventStream>;
-    
-    // Subscribe to agent activity
-    pub fn subscribe_activity(&self, subscriptions: &[Subscription]) -> Result<ActivityStream>;
-    
-    // Issue commands (split, move, close, rename, etc.)
-    pub fn command(&self, method: Method, params: serde_json::Value) -> Result<serde_json::Value>;
-    
-    // Get current snapshot
-    pub fn snapshot(&self) -> Result<Snapshot>;
-}
 ```
 
-The existing `vendor/herdr-compat/src/ipc.rs`, `api/`, and `protocol/` modules are already written
-and tested. We reuse them directly — the bridge essentially does this same thing over HTTP/WSS.
+**Ghostty-web features we use:**
 
-### 3. Agent Notification Panel
+- True color (24-bit)
+- Mouse protocol (click to focus, selection)
+- Bracketed paste
+- OSC 52 (terminal-initiated paste — critical for agent workflows)
+- Ligatures
+- Window management protocol
+- Sixel/lima image display (optional, later)
 
-The agent panel shows per-pane agent status with visual indicators:
+**Performance:**
 
-```
-┌────────────────────────────────────┐
-│ Agent Status                       │
-├────────────────────────────────────┤
-│ 🟢 Claude   working   (2m ago)    │
-│ 🟡 Codex    blocked   (5m ago)    │
-│ 🔵 Pi       idle      (1h ago)    │
-│ ⚪ bash     idle      (done)      │
-│ 🟢 Codex    working   (just now)  │
-│ ...                                │
-└────────────────────────────────────┘
-```
+- Each pane runs ghostty-web in its own canvas element
+- Input/output goes through Tauri IPC (Rust ↔ JS bridge)
+- Input batching: 32ms delay for normal typing, immediate for paste
+- Output coalescing: batch VT output frames at 60fps
 
-**Native notification features:**
+### 4. Multi-Window Manager
 
-- **macOS:** Native push notifications via `objc`/`macos` crates, or `launch_notification` from
-  herdr-compat's sound module for sound alerts. Use AppKit's `NSUserNotification` (deprecated but
-  still works) or `UserNotifications` framework.
-- **Linux:** D-Bus desktop notifications via `zbus` or `dbus-common`.
-- **Windows:** WinRT `Windows.UI.Notifications` toast notifications.
-- **Agent badges:** macOS dock badge using AppKit to show unread agent count.
-- **Focus notification:** When an agent goes `blocked` or `working`, flash the app icon or
-  generate a system sound (reusing herdr-compat's sound module).
+Each monitor can have its own Splatter window. Windows can be:
 
-**Agent pinning:** Users can pin important agents to always-show in the sidebar with a persistent
-notification strip at the top.
+- **Independent** — each has its own session (separate workspaces, panes, agents)
+- **Shared** — multiple windows show the same session (like a mirrored view)
 
-### 4. Window / Layout System
-
-A single main window that can be resized and manages the CMUX terminal grid.
+**Window management:**
 
 ```rust
+// In Rust
 use tauri::Manager;
 
-#[tauri::command]
-fn set_split_layout(
-    window: tauri::Window,
-    layout: SplitLayout,
-) {
-    // Compute pane rectangles
-    // Tell WebView to re-render with new layout
-    window.emit("layout-changed", layout);
+struct WindowManager {
+    windows: HashMap<String, tauri::Window>,
+    // Window → Session mapping
+    window_sessions: HashMap<String, Option<String>>, // None = independent, Some = shared
+    // Monitor → Window mapping
+    monitor_windows: HashMap<String, String>,
 }
 
-#[tauri::command]
-fn set_window_title(window: tauri::Window, title: String) {
-    window.set_title(&title).unwrap();
-}
+impl WindowManager {
+    // Create a new window on a specific monitor
+    fn create_window(&self, monitor_id: &str, session: Option<String>) -> Result<tauri::Window>;
 
-#[tauri::command]
-fn zoom_terminal(window: tauri::Window, zoomed_pane: Option<String>) {
-    // Toggle maximized view for a single pane
-    window.emit("zoom-pane", ZoomedPane { id: zoomed_pane });
+    // Share a session between two windows
+    fn link_session(&self, window_a: &str, window_b: &str) -> Result<()>;
+
+    // Unlink a window from its session
+    fn unlink_session(&self, window_id: &str) -> Result<()>;
+
+    // Detect monitors and create default layout
+    fn detect_and_layout(&self) -> Result<()>;
+
+    // Handle monitor hotplug (new monitor connected/disconnected)
+    fn on_monitor_change(&self) -> Result<()>;
 }
 ```
 
-**Window behavior:**
+**Window state persistence:**
 
-- Single main window with a menu bar (not titlebar-based navigation)
-- Resizable terminal grid with drag-resizable splitters (handled by WebView CSS/JS)
-- Keyboard shortcuts for pane navigation (global hotkeys via Rust)
-- "Always on top" toggle for focused agent pane
-- Native context menus for pane actions
+- Window position, size, z-order per monitor
+- Session association (independent/shared)
+- Restored on app launch
 
-### 5. Global Hotkeys
+### 5. Layout Engine (Pane Grid)
+
+Each window manages its own pane grid — a binary space partition (BSP) tree like tmux.
+
+**Layout primitives:**
 
 ```rust
-use tauri::Manager;
-use tauri_plugin_global_shortcut::GlobalShortcutExt;
+struct Split {
+    id: String,
+    direction: SplitDirection, // Right or Down
+    ratio: f32,               // 0.0 - 1.0
+    child_a: PaneId,          // Left or Top
+    child_b: PaneId,          // Right or Bottom
+}
 
-fn register_hotkeys(app: tauri::AppHandle) {
-    app.global_shortcut().register_all(&[
-        GlobalShortcutConfig {
-            shortcut: GlobalShortcut::new(ctl("Alt"), Key::ArrowUp),
-            handler: move |_| { /* select previous pane */ },
-        },
-        GlobalShortcutConfig {
-            shortcut: GlobalShortcut::new(ctl("Alt"), Key::ArrowDown),
-            handler: move |_| { /* select next pane */ },
-        },
-        GlobalShortcutConfig {
-            shortcut: GlobalShortcut::new(ctl("Alt"), Key::Tab),
-            handler: move |_| { /* cycle split next */ },
-        },
-        GlobalShortcutConfig {
-            shortcut: GlobalShortcut::new(ctl(ctl("Alt")), Key::KeyV),
-            handler: move |_| { /* split down */ },
-        },
-        GlobalShortcutConfig {
-            shortcut: GlobalShortcut::new(ctl(ctl("Alt")), Key::KeyH),
-            handler: move |_| { /* focus left */ },
-        },
-        // ... H/J/K/L for directions
-    ]);
+struct Pane {
+    id: String,
+    terminal_id: String,
+    rect: Rect,               // x, y, width, height (relative to pane grid)
+    zoomed: bool,
+    focused: bool,
 }
 ```
 
-### 6. Menu Bar
+**Operations:**
 
-Native app-level menu bar (not browser menu):
+- `split_right(pane_id) → new_pane_id`
+- `split_down(pane_id) → new_pane_id`
+- `close_pane(pane_id) → merged_pane_id` (adjacent panes merge)
+- `focus_direction(pane_id, direction) → target_pane_id`
+- `focus_next(pane_id) → target_pane_id`
+- `focus_prev(pane_id) → target_pane_id`
+- `zoom_pane(pane_id) → (was_zoomed, target_pane_id)`
+- `resize_pane(pane_id, delta) → ()`
+- `swap_panes(pane_id_a, pane_id_b) → ()`
+- `move_pane(pane_id, direction, new_parent) → ()`
 
+**Layout presets** (built-in + custom):
+
+```yaml
+# Built-in presets (ship with app)
+presets:
+  - name: "2-pane horizontal"
+    type: split
+    direction: right
+    ratio: 0.5
+  - name: "2-pane vertical"
+    type: split
+    direction: down
+    ratio: 0.5
+  - name: "3-pane row"
+    type: split
+    direction: right
+    ratio: 0.33
+    child:
+      type: split
+      direction: down
+      ratio: 0.5
+  - name: "2×2 grid"
+    type: split
+    direction: right
+    ratio: 0.5
+    child:
+      type: split
+      direction: down
+      ratio: 0.5
+  - name: "sidebar + main"
+    type: split
+    direction: right
+    ratio: 0.25
+    child:
+      type: split
+      direction: down
+      ratio: 0.75
+
+# Custom presets (user-saved)
+# Saved to: ~/.config/splatter/presets/<name>.yaml
 ```
-┌────────────────────────────────────────────────────┐
-│ Splatter  File    View      Window    Help     │
-└────────────────────────────────────────────────────┘
-```
 
-| Menu | Items |
-|------|-------|
-| **File** | New Pane, New Tab, New Workspace, Split Right, Split Down, Close Pane, Close Tab, Disconnect |
-| **View** | Toggle Sidebar, Toggle Notes, Zoom In, Zoom Out, Reset Zoom, Toggle Fullscreen |
-| **Window** | Previous Pane, Next Pane, Focus Left/Right/Up/Down, Toggle Zoom, Minimize, Bring All to Front |
-| **Help** | Documentation, Troubleshoot, About |
+### 6. Agent Awareness Engine
 
-### 7. System Tray (Optional)
+The core "meta-Herder" capability. Tracks agent lifecycle and provides a rich control surface.
+
+**Agent state model:**
 
 ```rust
-use tauri::menu::{Menu, MenuBuilder, MenuItem, MenuBuilderExt};
+struct AgentState {
+    pane_id: String,
+    terminal_id: String,
+    profile_name: String,
+    display_name: String,
+    agent_type: AgentType,    // pi, claude, codex, etc.
+    status: AgentStatus,      // idle, working, blocked, done, error, launching
+    started_at: Instant,
+    last_status_at: Instant,
+    last_output_at: Instant,
+    duration: Duration,
+    pin: bool,
+    group: Option<String>,    // workspace/project/group
+    tags: Vec<String>,
+    notes: Vec<Note>,
+    activity_log: Vec<ActivityEntry>,
+    performance: AgentStats,
+    resume_token: Option<String>,
+}
 
-fn build_tray(app: &tauri::App) -> Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Splatter", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
-    
-    let tray = trayicon::Builder::new()
-        .with_menu(&menu)
-        .with_tooltip("Splatter")
-        .with_icon(app.default_window_icon()?.clone())
-        .build(app)?;
-    
-    tray.on_tray_icon_event(|tray, event| {
-        match event {
-            trayicon::TrayIconEvent::Click { .. } => {
-                tray.app().get_webview_window("main").unwrap().show().unwrap();
-            }
-            _ => {}
-        }
-    });
-    
-    Ok(())
+struct ActivityEntry {
+    timestamp: Instant,
+    event: ActivityEvent,     // status_change, output, interrupted, etc.
+    detail: String,           // Human-readable summary
+}
+
+struct AgentStats {
+    total_time: Duration,
+    active_time: Duration,
+    idle_time: Duration,
+    blocked_time: Duration,
+    output_bytes: u64,
+    output_lines: u64,
+    command_count: u64,
+    file_reads: u64,
+    file_writes: u64,
+    errors: u64,
 }
 ```
 
-## File Structure
+**Agent types and detection:**
 
-```
-Splatter/                          # New project directory
-├── Cargo.toml                         # Tauri + Rust deps
-├── src/                               # Rust code
-│   ├── main.rs                        # Entry point
-│   ├── app.rs                         # App configuration
-│   ├── herdr/                         # Herdr IPC layer
-│   │   ├── mod.rs
-│   │   ├── session.rs                 # Main connection manager
-│   │   ├── terminal.rs                # Per-terminal attach/detach
-│   │   ├── events.rs                  # Event subscription/streaming
-│   │   ├── commands.rs                # Workspace/tab/pane commands
-│   │   └── snapshot.rs                # Snapshot aggregation
-│   ├── terminal/                      # Terminal engine
-│   │   ├── mod.rs
-│   │   ├── engine.rs                  # VT emulation (libghostty-vt wrapper)
-│   │   ├── layout.rs                  # Split layout calculations
-│   │   └── renderer.rs                # Frame rendering (RGBA/bytes)
-│   ├── notification/                  # Agent notifications
-│   │   ├── mod.rs
-│   │   ├── engine.rs                  # Cross-platform notification dispatch
-│   │   ├── macos.rs
-│   │   ├── linux.rs
-│   │   └── windows.rs
-│   ├── hotkeys/                       # Global hotkey management
-│   │   ├── mod.rs
-│   │   └── registry.rs
-│   └── menu/                          # Native menu bar
-│       ├── mod.rs
-│       └── builder.rs
-├── src-tauri/                         # Tauri config
-│   ├── tauri.conf.json               # App config (name, version, icon, etc.)
-│   ├── tauri.linux.conf.json         # Linux-specific overrides
-│   ├── tauri.macos.conf.json         # macOS-specific overrides
-│   ├── tauri.windows.conf.json       # Windows-specific overrides
-│   ├── capabilities/                 # WebView capabilities
-│   ├── icons/                        # App icons (all sizes)
-│   ├── build.rs                      # Build script
-│   └── Cargo.toml                    # Tauri-specific deps
-├── web/                               # REUSED from herdr-web (symlink or copy)
-│   ├── src/                           # Existing React UI code
-│   ├── package.json
-│   └── ...
-├── vendor/                            # REUSED from herdr-web
-│   └── herdr-compat/                  # Vendored Herdr compatibility
-├── scripts/
-│   ├── dev.sh                         # Quick dev script
-│   └── build.sh                       # Build script
-├── docs/
-│   ├── architecture.md
-│   ├── build.md
-│   └── packaging.md
-└── README.md
+Each agent type has a detection profile:
+
+```rust
+struct AgentProfile {
+    name: String,
+    display_name: String,
+    icon: &'static str,          // Emoji or icon name
+    status_colors: StatusColors, // Per-status color
+    detection: AgentDetection,   // How to identify this agent running
+    capabilities: AgentCapabilities, // What actions are available
+    status_map: StatusMap,       // Map raw status → Splatter status
+}
 ```
 
-## Tauri Configuration
+**Agent capabilities (per type):**
 
-### `src-tauri/tauri.conf.json`
+- `resume` — can the agent be resumed? (e.g., Pi agents can be resumed)
+- `interrupt` — can the agent be interrupted? (Ctrl+C equivalent)
+- `continue` — can the agent continue from where it left off?
+- `handoff` — can the agent hand off work to another agent?
+- `notes` — can the user annotate this agent's work?
+- `activity_replay` — can we show an activity replay?
+- `session_export` — can we export the agent's session?
 
-```json
-{
-  "productName": "Splatter",
-  "version": "0.1.0",
-  "identifier": "com.herdr.native",
-  "build": {
-    "frontendDist": "../web/dist",
-    "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run dev --prefix ../web",
-    "beforeBuildCommand": "npm run build --prefix ../web"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "Splatter",
-        "width": 1400,
-        "height": 900,
-        "resizable": true,
-        "fullscreen": false,
-        "decorations": true,
-        "transparent": false,
-        "focus": true
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self' ws://localhost ipc://localhost"
+**Agent handoff:**
+
+When agent A finishes and needs to pass work to agent B:
+
+1. User clicks "Handoff" on agent A's completed pane
+2. Splatter captures the work state (recent commands, file context)
+3. User selects agent B to hand off to
+4. Splatter launches agent B with context from agent A
+
+**Agent notes:**
+
+Per-pane, per-agent notes that persist across sessions:
+
+```rust
+struct Note {
+    id: String,
+    agent_id: String,
+    title: String,
+    body: String,
+    created_at: Instant,
+    updated_at: Instant,
+    tags: Vec<String>,
+    linked_agents: Vec<String>,
+}
+```
+
+### 7. System Tray Manager
+
+Tauri 2 tray with colored status indicator.
+
+**Tray state model:**
+
+```rust
+struct TrayManager {
+    icon: TrayIcon,
+    current_status: TrayStatus, // Global app status
+    agent_count: usize,         // Total agents managed
+    status_counts: StatusCounts, // { working: 2, blocked: 1, ... }
+    tooltip: String,             // "2 working · 1 blocked"
+}
+
+fn update_tray(&self) {
+    // Set colored icon based on most critical status
+    match self.most_critical_status() {
+        Some(Status::Blocked) => self.set_icon(red_icon),
+        Some(Status::Working) => self.set_icon(green_icon),
+        Some(Status::Done) => self.set_icon(gray_icon),
+        None => self.set_icon(default_icon),
     }
-  },
-  "bundle": {
+
+    // Set tooltip with summary
+    self.set_tooltip(format!(
+        "{} working · {} blocked · {} idle",
+        self.status_counts.working,
+        self.status_counts.blocked,
+        self.status_counts.idle
+    ));
+}
+```
+
+**Tray menu items:**
+
+```rust
+// Tray menu (right-click)
+- Show Splatter
+- ──────────────────
+- Recent Agent Status:
+  - 🟢 Pi Agent A (working - 2m)
+  - 🟡 Pi Agent B (blocked - 5m)
+  - 🔵 Pi Agent C (idle - 1h)
+- ──────────────────
+- Pin: Pi Agent A
+- Pin: Pi Agent B
+- ──────────────────
+- Quit Splatter
+```
+
+### 8. Notification Engine
+
+Cross-platform notification dispatch with configurable triggers.
+
+```rust
+struct NotificationEngine {
+    config: NotificationConfig,
+    active_notifications: HashMap<String, NotificationHandle>,
+}
+
+struct NotificationConfig {
+    enabled: bool,
+    sound: bool,                    // Play sound with notification
+    focus_requirement: FocusPolicy, // Only when app not focused
+    coalesce: CoalescePolicy,       // Group notifications within time window
+    triggers: Vec<NotificationTrigger>,
+}
+
+enum FocusPolicy {
+    Never,                    // Always
+    WhenNotFocused,           // Only when Splatter not focused
+    WhenMinimized,            // Only when Splatter minimized
+    WhenInactiveMinutes(u32), // Only after N minutes of inactivity
+}
+
+enum CoalescePolicy {
+    Off,                         // Each event is a separate notification
+    Window(Duration),            // Group events within time window
+    ByEvent(String),             // Group by event type (e.g., all "status_change" events)
+    MaxCount(u32),               // Maximum notifications per window
+}
+```
+
+**Configurable triggers:**
+
+```rust
+struct NotificationTrigger {
+    id: String,
+    name: String,
+    description: String,
+    enabled: bool,
+    event: AgentEvent,      // What event triggers this
+    condition: Option<String>, // Optional condition (e.g., status == "blocked")
+    sound: bool,            // Play sound
+    push: bool,             // Native OS notification
+    tray: bool,             // Update tray
+}
+
+// Default triggers (all enabled):
+triggers: [
+    { id: "agent_blocked", name: "Agent blocked", event: "agent_status", condition: "status==blocked", sound: true, push: true, tray: true },
+    { id: "agent_done", name: "Agent done", event: "agent_status", condition: "status==done", sound: false, push: true, tray: false },
+    { id: "agent_working", name: "Agent working", event: "agent_status", condition: "status==working", sound: false, push: true, tray: false },
+    { id: "agent_crash", name: "Agent crashed", event: "agent_exit", condition: "exit_code!=0", sound: true, push: true, tray: true },
+    { id: "agent_long_running", name: "Long-running agent", event: "agent_duration", condition: "duration>30m", sound: false, push: true, tray: false },
+    { id: "agent_connection_lost", name: "Connection lost", event: "connection_lost", condition: "true", sound: true, push: true, tray: true },
+    { id: "agent_connection_restored", name: "Connection restored", event: "connection_restored", condition: "true", sound: false, push: true, tray: false },
+]
+```
+
+**Platform-specific notification dispatch:**
+
+| Platform | Method | Crate |
+|----------|--------|-------|
+| Linux (GNOME/KDE) | D-Bus `org.freedesktop.Notifications` | `zbus` |
+| Linux (generic) | `notify-send` via `tauri-plugin-shell` | `tauri-plugin-shell` |
+| macOS | `UserNotifications` framework | `usernotifications` |
+| macOS (fallback) | `osascript` | `tauri-plugin-shell` |
+
+### 9. Global Hotkey Registry
+
+System-wide keyboard shortcuts via Tauri's `global-shortcut` plugin.
+
+```rust
+struct HotkeyRegistry {
+    app: AppHandle,
+    hotkeys: HashMap<String, GlobalShortcut>,
+}
+
+impl HotkeyRegistry {
+    fn register_all(&mut self) {
+        // Navigation
+        self.register("nav-prev-pane", "CmdOrOpt+Shift+Up");
+        self.register("nav-next-pane", "CmdOrOpt+Shift+Down");
+        self.register("nav-cycle-next", "CmdOrOpt+Tab");
+        self.register("nav-cycle-prev", "CmdOrOpt+Shift+Tab");
+        self.register("nav-focus-left", "CmdOrOpt+H");
+        self.register("nav-focus-down", "CmdOrOpt+J");
+        self.register("nav-focus-up", "CmdOrOpt+K");
+        self.register("nav-focus-right", "CmdOrOpt+L");
+
+        // Layout
+        self.register("layout-split-down", "CmdOrOpt+Shift+V");
+        self.register("layout-split-right", "CmdOrOpt+Shift+D");
+        self.register("layout-zoom-toggle", "CmdOrOpt+Z");
+        self.register("layout-new-tab", "CmdOrOpt+Shift+T");
+        self.register("layout-close-pane", "CmdOrOpt+Shift+X");
+        self.register("layout-new-pane", "CmdOrOpt+Shift+P");
+
+        // Agent actions
+        self.register("agent-interrupt", "CmdOrOpt+I");
+        self.register("agent-continue", "CmdOrOpt+C");
+        self.register("agent-resume", "CmdOrOpt+R");
+        self.register("agent-pin", "CmdOrOpt+Shift+P");
+        self.register("agent-next-pinned", "CmdOrOpt+Shift+Shift+P");
+
+        // App-level
+        self.register("app-show-hide", "CmdOrOpt+S");
+        self.register("app-toggle-sidebar", "CmdOrOpt+B");
+        self.register("app-new-window", "CmdOrOpt+N");
+        self.register("app-new-window-focus", "CmdOrOpt+Shift+N");
+    }
+}
+```
+
+### 10. Plugin System
+
+A sandboxed plugin host with manifest, marketplace, and API.
+
+**Plugin architecture:**
+
+```rust
+// Plugin manifest (plugin.yaml)
+name: "agent-notifier"
+version: "1.0.0"
+description: "Send agent status to Discord/Slack/Telegram"
+author: "splatter-user"
+homepage: "https://github.com/user/splatter-agent-notifier"
+license: "MIT"
+entry: "main.js"        // JavaScript entry point
+permissions: ["notification", "agent:read", "http"]
+
+// Plugin lifecycle hooks
+// Plugin exposes these functions in JavaScript:
+async onPluginReady() { /* Plugin loaded, app is ready */ }
+async onAgentStatusChanged(agent: AgentState) { /* Handle agent status change */ }
+async onAgentActivity(agentId: string, activity: ActivityEntry) { /* Handle agent activity */ }
+async onPluginWillUnload() { /* Cleanup */ }
+```
+
+**Plugin API (Rust → JS bridge):**
+
+```typescript
+// Available in plugin JavaScript
+import { splatter } from '@splatter/plugin';
+
+// Agent operations
+await splatter.agent.getStatus(agentId);
+await splatter.agent.getInterrupt(agentId);
+await splatter.agent.resume(agentId);
+await splatter.agent.list();
+
+// Window/pane operations
+await splatter.window.getActive();
+await splatter.window.create();
+await splatter.pane.list();
+await splatter.pane.focus(paneId);
+
+// Settings
+await splatter.settings.get('key');
+await splatter.settings.set('key', value);
+
+// Notification
+await splatter.notification.send({ title, body, sound });
+
+// HTTP
+const response = await splatter.http.fetch(url, options);
+
+// Events
+splatter.events.on('agent-status', handler);
+splatter.events.on('window-close', handler);
+```
+
+**Plugin marketplace:**
+
+- GitHub-hosted registry (like npm for plugins)
+- Each plugin is a GitHub repo with a `plugin.yaml` manifest
+- `splatter plugin search <query>` — search marketplace
+- `splatter plugin install <name>` — install from marketplace
+- `splatter plugin update <name>` — update plugin
+- `splatter plugin uninstall <name>` — remove plugin
+
+### 11. Settings & Configuration
+
+Structured config.toml + in-app Settings UI + import/export.
+
+```toml
+# ~/.config/splatter/config.toml
+
+[app]
+name = "Splatter"
+version = "0.1.0"
+theme = "dark"
+auto_update = true
+crash_reporting = true
+
+[windows]
+default_width = 1400
+default_height = 900
+default_monitors = "primary"
+max_windows = 10
+restore_on_start = true
+window_positions = true
+
+[terminal]
+font_family = "JetBrains Mono"
+font_size = 14
+cursor_style = "block"
+cursor_blink = true
+background_opacity = 1.0
+scrollback_lines = 10000
+input_batch_delay_ms = 32
+output_coalesce_ms = 16
+
+[agents]
+default_working_dir = "inherit"
+auto_detect = true
+status_refresh_interval_ms = 200
+agent_profiles_dir = "~/.config/splatter/agents"
+resume_on_crash = true
+
+[notifications]
+enabled = true
+sound = true
+focus_policy = "when-not-focused"
+coalesce_window_ms = 30000
+max_per_window = 5
+
+[hotkeys]
+# See hotkey registry section
+
+[tray]
+enabled = true
+show_on_start = true
+color_icon = true
+show_agent_count = true
+menu_on_left_click = false
+```
+
+**Settings migration:**
+
+```rust
+// Settings versions migrate automatically
+struct SettingsMigration {
+    from_version: u32,
+    to_version: u32,
+    migration: fn(Settings) -> Settings,
+}
+```
+
+### 12. Auto-Update + Crash Reporting
+
+**Auto-updater:**
+
+```toml
+# src-tauri/tauri.conf.json (partial)
+{
+  "updater": {
     "active": true,
-    "targets": ["deb", "rpm", "appimage", "dmg", "nsis"],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
+    "endpoints": [
+      "https://api.github.com/repos/splatter-app/splatter/releases/latest"
+    ],
+    "dialog": false,
+    "pubkey": "<ed25519-pubkey>"
   }
 }
 ```
 
-### `src-tauri/Cargo.toml`
+**Crash reporting:**
 
-```toml
-[package]
-name = "Splatter"
-version = "0.1.0"
-edition = "2021"
+- Rust: `sentry` crate for crash dumps
+- JS: Sentry JS SDK for WebView crashes
+- Configurable in Settings → Diagnostic → Enable crash reporting
 
-[dependencies]
-tauri = { version = "2", features = ["shell-open"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
-anyhow = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+### 13. CI/CD & Distribution
 
-# Tauri plugins
-tauri-plugin-shell = "2"
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-store = "2"
-tauri-plugin-notification = "2"
+**GitHub Actions workflow:**
 
-# Platform-specific
-[target.'cfg(target_os = "macos")'.dependencies]
-objc = "0.2"
-macos = "0.1"
-usernotifications = "0.1"
+```yaml
+# .github/workflows/release.yml
+name: Release
 
-[target.'cfg(target_os = "linux")'.dependencies]
-zbus = "4"
+on:
+  push:
+    tags: ['v*']
 
-[target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Notifications", "Win32_Foundation"] }
+jobs:
+  release:
+    strategy:
+      matrix:
+        platform: [ubuntu-24.04, macos-14, windows-latest]
+    runs-on: ${{ matrix.platform }}
 
-# Herdr compat (vendored)
-herdr-compat = { path = "../../vendor/herdr-compat" }
+    steps:
+      - uses: actions/checkout@v4
 
-[build-dependencies]
-tauri-build = { version = "2", features = [] }
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+
+      - name: Build Linux packages
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          # Build .deb and .AppImage
+          cargo tauri build --target x86_64-unknown-linux-gnu
+
+      - name: Create Homebrew formula
+        if: matrix.platform == 'macos-14'
+        run: |
+          # Generate Homebrew cask formula
+          scripts/gen-cask.sh
+
+      - name: Create AUR PKGBUILD
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          # Generate AUR PKGBUILD
+          scripts/gen-aur.sh
+
+      - name: Upload artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/release/bundle/**/*
 ```
 
-## WebView Integration (Rust ↔ React Bridge)
+**Distribution targets:**
 
-The WebView communicates with Rust via Tauri's event system and commands:
+- GitHub Releases (tarballs, .deb, AppImage)
+- Homebrew (macOS)
+- AUR (Linux Arch)
+- winget (Windows, future)
 
-### Rust → WebView (events)
+## File Structure
 
-```rust
-// When a terminal produces output
-window.emit("terminal-output", TerminalOutputEvent {
-    terminal_id: "term-1".to_string(),
-    data: ansi_bytes,  // Vec<u8>
-});
-
-// When agent status changes
-window.emit("agent-status", AgentStatusEvent {
-    pane_id: "pane-42".to_string(),
-    status: "working".to_string(),
-    agent: "Claude".to_string(),
-});
-
-// When layout changes (split/resize)
-window.emit("layout-update", LayoutUpdateEvent {
-    splits: vec![...],
-    panes: vec![...],
-});
+```
+splatter/                              # Project root
+├── Cargo.toml                         # Rust workspace root
+├── package.json                       # Node.js deps (for web/)
+├── src/                               # Rust source
+│   ├── main.rs                        # Entry point
+│   ├── lib.rs                         # Library root
+│   ├── app/                           # App initialization
+│   │   ├── mod.rs
+│   │   ├── config.rs                  # Config loading
+│   │   └── state.rs                   # Global app state
+│   ├── agent/                         # Agent management
+│   │   ├── mod.rs
+│   │   ├── launcher.rs                # Process spawning
+│   │   ├── manager.rs                 # Agent lifecycle
+│   │   ├── detector.rs                # Agent type detection
+│   │   ├── profile.rs                 # Agent profiles (YAML)
+│   │   ├── history.rs                 # Activity history
+│   │   └── resume.rs                  # Agent resume
+│   ├── terminal/                      # Terminal management
+│   │   ├── mod.rs
+│   │   ├── session.rs                 # PTY sessions
+│   │   ├── input.rs                   # Input forwarding
+│   │   ├── output.rs                  # Output forwarding
+│   │   └── resize.rs                  # Resize handling
+│   ├── layout/                        # Layout engine
+│   │   ├── mod.rs
+│   │   ├── bsp.rs                     # Binary space partition
+│   │   ├── ops.rs                     # Layout operations
+│   │   └── presets.rs                 # Preset loading/saving
+│   ├── tray/                          # System tray
+│   │   ├── mod.rs
+│   │   ├── builder.rs                 # Tray setup
+│   │   └── menu.rs                    # Tray menu items
+│   ├── hotkeys/                       # Global hotkeys
+│   │   ├── mod.rs
+│   │   ├── registry.rs                # Registration
+│   │   └── handlers.rs                # Hotkey callbacks
+│   ├── notify/                        # Notification engine
+│   │   ├── mod.rs
+│   │   ├── engine.rs                  # Dispatch logic
+│   │   ├── trigger.rs                 # Trigger evaluation
+│   │   ├── config.rs                  # Config loading
+│   │   └── platform/                  # Platform dispatch
+│   │       ├── mod.rs
+│   │       ├── linux.rs               # D-Bus
+│   │       ├── linux-cli.rs           # notify-send
+│   │       └── macos.rs               # UserNotifications
+│   ├── window/                        # Window management
+│   │   ├── mod.rs
+│   │   ├── manager.rs                 # Multi-window
+│   │   ├── state.rs                   # Window persistence
+│   │   └── monitor.rs                 # Monitor detection
+│   ├── plugin/                        # Plugin system
+│   │   ├── mod.rs
+│   │   ├── host.rs                    # Plugin host (JS)
+│   │   ├── manifest.rs                # Manifest parsing
+│   │   ├── api.rs                     # Plugin API bridge
+│   │   └── marketplace.rs             # Marketplace client
+│   ├── settings/                      # Settings
+│   │   ├── mod.rs
+│   │   ├── store.rs                   # Settings storage
+│   │   ├── migration.rs               # Version migrations
+│   │   ├── schema.rs                  # Schema validation
+│   │   └── import.rs                  # Import/export
+│   ├── updater/                       # Auto-updater
+│   │   ├── mod.rs
+│   │   ├── client.rs                  # Update checks
+│   │   └── installer.rs               # Install updates
+│   └── crash/                         # Crash reporting
+│       ├── mod.rs
+│       ├── logger.rs                  # Error logging
+│       └── sentry.rs                  # Sentry integration
+├── src-tauri/                         # Tauri config
+│   ├── tauri.conf.json               # App config
+│   ├── tauri.linux.conf.json         # Linux overrides
+│   ├── capabilities/                  # WebView permissions
+│   │   └── default.json
+│   ├── icons/                         # App icons
+│   │   ├── 32x32.png
+│   │   ├── 128x128.png
+│   │   ├── 128x128@2x.png
+│   │   ├── icon.icns
+│   │   └── icon.ico
+│   ├── build.rs                       # Build script
+│   └── Cargo.toml                     # Tauri-specific deps
+├── web/                               # Frontend (React + TypeScript)
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── public/                        # Static assets
+│   └── src/                           # React source
+│       ├── main.tsx                    # Entry point
+│       ├── App.tsx                     # Root component
+│       ├── components/                 # React components
+│       │   ├── Sidebar/
+│       │   │   ├── AgentList.tsx
+│       │   │   ├── AgentGroup.tsx
+│       │   │   ├── AgentPin.tsx
+│       │   │   ├── AgentStatus.tsx
+│       │   │   ├── SidebarNav.tsx
+│       │   │   └── SidebarPanel.tsx
+│       │   ├── Terminal/
+│       │   │   ├── TerminalPane.tsx
+│       │   │   ├── TerminalContainer.tsx
+│       │   │   ├── TerminalToolbar.tsx
+│       │   │   ├── TerminalResizeHandle.tsx
+│       │   │   └── TerminalSelection.tsx
+│       │   ├── Layout/
+│       │   │   ├── LayoutGrid.tsx
+│       │   │   ├── SplitHandle.tsx
+│       │   │   ├── LayoutPresets.tsx
+│       │   │   └── LayoutToolbar.tsx
+│       │   ├── Status/
+│       │   │   ├── StatusBar.tsx
+│       │   │   ├── StatusBadge.tsx
+│       │   │   └── StatusLegend.tsx
+│       │   ├── Settings/
+│       │   │   ├── SettingsPanel.tsx
+│       │   │   ├── SettingsSections.tsx
+│       │   │   ├── SettingsAgents.tsx
+│       │   │   ├── SettingsNotifications.tsx
+│       │   │   ├── SettingsHotkeys.tsx
+│       │   │   ├── SettingsPlugins.tsx
+│       │   │   ├── SettingsImportExport.tsx
+│       │   │   └── SettingsCrash.tsx
+│       │   ├── Plugin/
+│       │   │   ├── PluginPanel.tsx
+│       │   │   ├── PluginCard.tsx
+│       │   │   ├── PluginSearch.tsx
+│       │   │   └── PluginMarketplace.tsx
+│       │   ├── Notification/
+│       │   │   ├── NotificationToast.tsx
+│       │   │   └── NotificationSettings.tsx
+│       │   └── Window/
+│       │       ├── WindowManager.tsx
+│       │       └── WindowSelector.tsx
+│       ├── hooks/                      # React hooks
+│       │   ├── useAgent.ts             # Agent state
+│       │   ├── useTerminal.ts          # Terminal state
+│       │   ├── useLayout.ts            # Layout state
+│       │   ├── useHotkeys.ts           # Hotkey handling
+│       │   ├── useSettings.ts          # Settings
+│       │   ├── useWindow.ts            # Window management
+│       │   ├── usePlugin.ts            # Plugin management
+│       │   └── useTray.ts              # System tray
+│       ├── api/                        # Tauri API calls
+│       │   ├── agent.ts                # Agent commands
+│       │   ├── terminal.ts             # Terminal commands
+│       │   ├── layout.ts               # Layout commands
+│       │   ├── tray.ts                 # Tray commands
+│       │   ├── hotkeys.ts              # Hotkey commands
+│       │   ├── settings.ts             # Settings commands
+│       │   ├── window.ts               # Window commands
+│       │   └── plugin.ts               # Plugin commands
+│       ├── events/                     # Event system
+│       │   ├── emitter.ts              # Event emitter
+│       │   ├── agent.ts                # Agent events
+│       │   ├── terminal.ts             # Terminal events
+│       │   └── window.ts               # Window events
+│       ├── types/                      # TypeScript types
+│       │   ├── agent.ts
+│       │   ├── terminal.ts
+│       │   ├── layout.ts
+│       │   ├── settings.ts
+│       │   └── plugin.ts
+│       ├── themes/                     # Theme system
+│       │   ├── dark.ts                 # Dark theme
+│       │   └── index.ts
+│       └── utils/                      # Utilities
+│           ├── format.ts               # Time formatting
+│           ├── debounce.ts             # Debounce helper
+│           └── events.ts               # Event helpers
+├── scripts/                            # Build/utility scripts
+│   ├── dev.sh                          # Quick dev start
+│   ├── build.sh                        # Build script
+│   ├── gen-cask.sh                     # Homebrew cask generator
+│   ├── gen-aur.sh                      # AUR PKGBUILD generator
+│   └── test.sh                         # Test runner
+├── tests/                              # Tests
+│   ├── integration/                    # Integration tests
+│   ├── unit/                           # Unit tests
+│   │   ├── agent/                      # Agent tests
+│   │   ├── terminal/                   # Terminal tests
+│   │   ├── layout/                     # Layout tests
+│   │   ├── notification/               # Notification tests
+│   │   ├── hotkeys/                    # Hotkey tests
+│   │   ├── settings/                   # Settings tests
+│   │   └── plugin/                     # Plugin tests
+│   └── e2e/                            # End-to-end tests
+│       ├── agent-launch.e2e.ts         # Agent launch tests
+│       ├── layout-split.e2e.ts         # Layout split tests
+│       ├── tray.e2e.ts                 # System tray tests
+│       └── hotkey.e2e.ts               # Global hotkey tests
+├── plugins/                            # Example plugins (for development)
+│   └── example-agent-notifier/
+│       ├── plugin.yaml
+│       └── main.js
+├── .github/                            # GitHub config
+│   └── workflows/
+│       └── release.yml                 # CI/CD pipeline
+├── .config/                            # Config for development
+│   └── splatter/                       # Development config
+│       ├── config.toml
+│       └── agents/                     # Dev agent profiles
+│           ├── pi.yaml
+│           └── master-ai-stack.yaml
+├── docs/                               # Documentation
+│   ├── architecture.md                 # Architecture docs
+│   ├── build.md                        # Build instructions
+│   ├── packaging.md                    # Packaging docs
+│   ├── plugins.md                      # Plugin development
+│   └── settings.md                     # Settings reference
+├── .gitignore
+├── README.md                           # Project README
+└── SKETCH.md                           # This file
 ```
 
-### WebView → Rust (commands)
+## Key Differences from herdr-web-dash
 
-```typescript
-// In TypeScript (React side):
-import { invoke } from '@tauri-apps/api/core';
-
-// Send terminal input
-await invoke('send_terminal_input', {
-    terminalId: 'term-1',
-    data: 'ls -la\n',  // string or base64 binary
-});
-
-// Resize terminal
-await invoke('resize_terminal', {
-    terminalId: 'term-1',
-    cols: 120,
-    rows: 40,
-});
-
-// Issue herdr commands
-await invoke('herdr_command', {
-    method: 'pane.split',
-    params: { direction: 'down', target_pane_id: 'pane-42' },
-});
-
-// Get current snapshot
-const snapshot = await invoke<Snapshot>('get_snapshot');
-```
-
-### Tauri Commands (Rust side)
-
-```rust
-use tauri::command;
-
-#[command]
-fn send_terminal_input(
-    app: tauri::AppHandle,
-    terminal_id: String,
-    data: String,
-) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    state.session.send_input(&terminal_id, data.as_bytes())
-        .map_err(|e| e.to_string())
-}
-
-#[command]
-fn resize_terminal(
-    app: tauri::AppHandle,
-    terminal_id: String,
-    cols: u16,
-    rows: u16,
-) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    state.session.resize_terminal(&terminal_id, cols, rows)
-        .map_err(|e| e.to_string())
-}
-
-#[command]
-fn herdr_command(
-    app: tauri::AppHandle,
-    method: String,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let state = app.state::<AppState>();
-    let result = state.session.command(&method, params)
-        .map_err(|e| e.to_string())?;
-    Ok(result)
-}
-
-#[command]
-fn get_snapshot(app: tauri::AppHandle) -> Result<Snapshot, String> {
-    let state = app.state::<AppState>();
-    state.session.snapshot()
-        .map_err(|e| e.to_string())
-}
-
-#[command]
-fn subscribe_events(
-    app: tauri::AppHandle,
-    window: tauri::Window,
-    subscriptions: Vec<String>,
-) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let stream = state.session.subscribe_events(&subscriptions)
-        .map_err(|e| e.to_string())?;
-    
-    tokio::spawn(async move {
-        loop {
-            match stream.next().await {
-                Some(event) => {
-                    let _ = window.emit("herdr-event", event);
-                }
-                None => break,
-            }
-        }
-    });
-    
-    Ok(())
-}
-```
-
-## Terminal Emulation: libghostty-vt
-
-The herdr-compat vendor crate already depends on Ghostty/VT for encoding. We extract the VT
-emulation layer:
-
-```rust
-// vendor/herdr-compat/src/terminal/engine.rs
-
-pub struct TerminalEngine {
-    // VT state machine instance
-    inner: VTEngine,
-    // Rendered output (text grid + styling)
-    cells: Vec<Cell>,
-    // Dimensions
-    width: u16,
-    height: u16,
-}
-
-impl TerminalEngine {
-    pub fn new(width: u16, height: u16) -> Self {
-        Self {
-            inner: VTEngine::new(),
-            cells: vec![Cell::default(); (width * height) as usize],
-            width,
-            height,
-        }
-    }
-    
-    // Feed raw VT escape sequences (from herdr)
-    pub fn feed(&mut self, data: &[u8]) {
-        self.inner.input(data);
-    }
-    
-    // Get current rendered frame
-    pub fn render(&self) -> RenderFrame {
-        RenderFrame {
-            width: self.width,
-            height: self.height,
-            cells: self.cells.clone(),
-        }
-    }
-    
-    // For text selection and copy/paste
-    pub fn text_content(&self, selection: Option<Selection>) -> String {
-        // ...
-    }
-}
-```
-
-**Rendering approach in WebView:**
-
-The WebView renders terminal panes using canvas elements. Each frame:
-
-1. Rust emits terminal output events with VT escape sequences
-2. WebView's terminal renderer (Ghostty Web / `ghostty-web` npm package) renders to canvas
-3. Or: Rust renders to bitmap, WebView displays as `<img>` or canvas
-
-**Two options:**
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **A. WebView renders VT** | Reuse existing `ghostty-web` npm package; full feature parity | Terminal rendering not fully native; still depends on JS renderer |
-| **B. Rust renders bitmap** | Fully native rendering pipeline; WebView just displays frames | More work; bitmap transfer overhead; need to re-implement VT rendering in Rust |
-
-**Recommendation: Start with Option A** (reuse ghostty-web). It's the fastest path to a working
-app. The terminal rendering quality is already excellent. We can later layer on native rendering
-for performance-sensitive cases (large outputs, high-DPI, GPU acceleration).
-
-## Platform-Specific Considerations
-
-### Linux
-
-- **Window:** GTK+4 via WebKitGTK (Tauri's default on Linux)
-- **Notifications:** D-Bus via `zbus` crate → `org.freedesktop.Notifications`
-- **Icon:** Desktop entry file in `.local/share/applications`
-- **Package formats:** `.deb`, `.rpm`, `.AppImage`
-- **IME:** WebKitGTK handles IME for CJK input
-- **Wayland vs X11:** Tauri/WebkitGTK handles both; test on both
-
-### macOS
-
-- **Window:** AppKit + WKWebView (Tauri's default on macOS)
-- **Notifications:** `UserNotifications` framework via `usernotifications` crate
-- **Dock badge:** AppKit `NSApplication` badge number
-- **Agent status in title bar:** Custom titlebar with agent status indicator
-- **Package formats:** `.dmg`, `.pkg`
-- **Gatekeeper:** Notarization for distribution
-- **Universal binary:** `x86_64` + `arm64`
-
-### Windows
-
-- **Window:** Win32 + WebView2 (Edge/Chromium)
-- **Notifications:** WinRT `Windows.UI.Notifications` API
-- **Package formats:** `.msi`, `.exe` (NSIS installer)
-- **Unicode:** UTF-8 everywhere; handle CJK via WebView2
-- **Antivirus:** Windows Defender may flag unsigned binaries
-
-## Migration Path from herdr-web-dash
-
-### Phase 0: Vendor Setup (1-2 days)
-
-- Copy `vendor/herdr-compat` from herdr-web-dash
-- Copy `web/` from herdr-web-dash (or symlink)
-- Setup Tauri project scaffolding
-- Verify: `tauri dev` shows the existing herdr-web UI
-
-### Phase 1: Bridge Replacement (1-2 weeks)
-
-- Replace HTTP bridge calls with Tauri commands
-- Herdr socket communication moves from bridge.rs to Rust core
-- WebSocket terminal sessions → Rust→WebView direct event streaming
-- Event subscriptions → Tauri events
-
-### Phase 2: Native Features (2-3 weeks)
-
-- Global hotkeys (Tauri global-shortcut plugin)
-- System tray (custom tray implementation)
-- Native notifications (platform-specific crates)
-- Agent status badges on macOS dock / Linux taskbar / Windows tray
-- Native menu bar (Tauri menu plugin)
-
-### Phase 3: Polish (2-4 weeks)
-
-- Terminal rendering optimization
-- Window management (zoom, always-on-top)
-- Settings/preferences UI (persisted via Tauri store plugin)
-- Crash reporting
-- Update mechanism (Tauri updater plugin)
-
-### Phase 4: Distribution (ongoing)
-
-- Package signing
-- Auto-updater configuration
-- GitHub Actions CI/CD for Linux/macOS/Windows releases
-- Homebrew cask (macOS)
-- AUR package (Linux)
-
-## Key Differences from Current herdr-web-dash
-
-| Aspect | herdr-web-dash (current) | Splatter (proposed) |
-|--------|-------------------------|------------------------|
+| Aspect | herdr-web-dash | Splatter |
+|--------|----------------|----------|
 | **Runtime** | Browser (Chrome/Firefox) | Embedded WebView (native) |
-| **Bridge** | Separate Rust HTTP process | Tauri commands (same process) |
+| **Backend** | Separate Rust HTTP process | Tauri commands (same process) |
 | **Transport** | HTTP + WebSocket over localhost | Direct IPC (Tauri events/commands) |
 | **Terminal** | ghostty-web npm in browser | ghostty-web in WebView (same code) |
-| **Notifications** | None (web-only) | Native OS notifications |
-| **Hotkeys** | App-level keyboard shortcuts | Global system-wide hotkeys |
-| **Icon** | Browser tab icon | Dock/panel/taskbar icon |
-| **Tray** | None | System tray with agent status |
-| **Menu** | Browser menu | Native app menu bar |
-| **Install** | Tarball + manual start | .deb/.dmg/.msi installer |
-| **Binary size** | ~10 MB (Rust) + Node.js | ~5-15 MB (Tauri) |
-| **Dependencies** | Node.js + Rust | Just the binary (WebView bundled) |
+| **Agent model** | Observer (no launch) | Launcher (spawns agents) |
+| **Multi-session** | Multi-bridge support | Multi-window per monitor |
+| **Remote** | SSH thin client | Not in v1 (planned later) |
+| **Notifications** | None | Full native OS notifications |
+| **Hotkeys** | App-level only | Global system-wide |
+| **Tray** | None | Full status panel |
+| **Plugin system** | None | Full marketplace |
+| **Auto-update** | Manual | Built-in |
+| **Install** | Tarball | .deb/.AppImage (v1) |
+| **Dependencies** | Node.js + Rust + herdr | Just the binary (WebView bundled) |
+
+## Testing Strategy
+
+See separate TEST_PLAN.md document.
+
+## Migration Path / Build Phases
+
+See BUILD_PLAN.md document.
 
 ## Risks and Mitigations
 
-### Risk 1: libghostty-vt is not easily FFI-exposed
+### Risk 1: Ghostty-web in Tauri WebView has issues on Linux
 
-**Mitigation:** Start with ghostty-web in WebView (no native VT rendering needed). The bridge
-already works with JSON/WebSocket transport. The native app just changes the transport layer.
+**Impact:** High. The entire terminal rendering stack depends on this.
+**Mitigation:** Test early (Phase 0). If ghostty-web fails, fall back to:
 
-### Risk 2: Tauri WebView limitations on Linux
+- `@xterm/xterm` (pure JS VT, no canvas, no GPU)
+- Custom ghostty-web build with patched dependencies
+- Native VT rendering via `alacritty_terminal` (Rust, not Ghostty)
+**Detection:** Build a minimal PoC in Phase 0. If it works, we're green. If not, pivot.
 
-**Mitigation:** WebKitGTK on Linux is mature. Test terminal rendering carefully. If needed, fall
-back to X11 mode or use a different WebView backend.
+### Risk 2: Agent detection is imperfect
 
-### Risk 3: macOS notarization overhead
+**Impact:** Medium. Some agent types may not be detected reliably.
+**Mitigation:** Use multiple detection signals (process name, working dir, env vars, output patterns). Allow manual agent type override. Log undetected agents for future detection rules.
 
-**Mitigation:** Get Apple Developer program membership early. Automate notarization in CI/CD.
+### Risk 3: Multi-window state management is complex
 
-### Risk 4: Herdr protocol changes break compatibility
+**Impact:** Medium. Multiple windows share state, need to handle disconnects, reconnects.
+**Mitigation:** Implement window state persistence early. Use Tauri's window events for lifecycle. Test with 3+ windows on 3+ monitors.
 
-**Mitigation:** The herdr-compat vendor crate already handles this. The same vendor refresh
-process applies. Protocol version test in herdr-compat catches regressions.
+### Risk 4: Plugin system security
+
+**Impact:** High. Plugins run with app permissions, could access user data.
+**Mitigation:** Sandboxed JS runtime. Permission model (each plugin declares needed permissions). Code review for marketplace plugins. Rate limiting for HTTP requests.
 
 ### Risk 5: Terminal input latency
 
-**Mitigation:** WebView→Rust→herdr→VT→WebView round-trip adds latency. Optimize by:
+**Impact:** Medium. WebView→Rust→herdr→PTY→VT→WebView round-trip adds latency.
+**Mitigation:**
 
-- Batching input events
-- Using binary frames instead of JSON
-- Profiling with real-world workloads
+- Input batching (32ms delay for normal typing, immediate for paste)
+- Use binary frames instead of JSON for input/output
+- Profile with real-world workloads (large outputs, rapid input)
+- Consider direct VT rendering for input-heavy workloads
+
+### Risk 6: GTK/WebKitGTK version compatibility
+
+**Impact:** Medium. Different distros ship different WebKitGTK versions.
+**Mitigation:** Test on Ubuntu 22.04, 24.04, Fedora, Arch. Use `webkit2gtk` >= 4.0 from Tauri docs. Graceful fallback for older WebKitGTK (reduce feature set).
+
+### Risk 7: AppImage sandboxing issues
+
+**Impact:** Low-Medium. AppImage runs in sandbox, may have issues with notifications, tray, etc.
+**Mitigation:** Bundle required dependencies. Test AppImage in multiple desktop environments. Consider AppImage with `--appimage-extract-and-run` for development.
 
 ## Success Criteria
 
-1. **Works:** Opens a window, connects to herdr, displays terminal panes
-2. **Splits:** Can create/h navigate/resize split panes
-3. **Agent-aware:** Shows agent status panel with real-time updates
-4. **Notifications:** Generates native notifications for agent events
-5. **Hotkeys:** Global keyboard shortcuts work for pane navigation
-6. **Cross-platform:** Runs on Linux (GTK), macOS (AppKit), Windows (Win32)
-7. **Installable:** Distributes as proper packages (.deb/.dmg/.msi)
-8. **Standalone:** No browser required, no separate bridge process
+### MVP (v0.1.0)
 
-## Naming
+1. ✅ Opens a window on Linux (GTK/WebKitGTK)
+2. ✅ Launches a Pi agent into a terminal pane
+3. ✅ Shows terminal output (ghostty-web rendering works)
+4. ✅ Tracks agent status (idle/working/blocked/done)
+5. ✅ Can split/merge/close panes
+6. ✅ Agent-aware sidebar with status dots
+7. ✅ Settings persisted via config.toml
 
-Current project: **herdr-web** / **herdr-web-dash** / **herdr-web-dash-bridge**
+### v0.5.0
 
-Proposed: **Splatter** (or **herdr-desktop**)
+1. ✅ System tray with status indicator
+2. ✅ Native OS notifications
+3. ✅ Global hotkeys (navigation, agent actions)
+4. ✅ Layout presets (built-in)
+5. ✅ Agent resume (one-click)
+6. ✅ Settings UI (full panel)
+7. ✅ Agent pinning + groups
 
-The name should communicate "native desktop app, not a web app" while staying in the herdr
-ecosystem.
+### v1.0.0
+
+1. ✅ Multi-window (per monitor)
+2. ✅ Full agent awareness (history, timeline, stats)
+3. ✅ Agent notes and annotations
+4. ✅ Agent handoff
+5. ✅ Auto-updater
+6. ✅ Crash reporting
+7. ✅ Plugin system (basic)
+8. ✅ .deb and AppImage distribution
+9. ✅ GitHub Actions CI/CD
+10. ✅ Homebrew formula (macOS)
+11. ✅ AUR PKGBUILD (Linux)
+
+## Future Features (Post-v1)
+
+- Remote SSH attach (thin client)
+- Multi-session management (connect to multiple herdr/daemon sessions)
+- macOS + Windows builds
+- Agent-to-agent handoff (cross-agent)
+- Terminal image display (sixel/lima)
+- Record and replay sessions
+- Multi-cursor input
+- Custom themes (light/dark/user-defined)
+- Plugin marketplace
+- Agent performance analytics dashboard
+- Scripting API (Python/Rust hooks)
+- Screen reader support (accessibility)

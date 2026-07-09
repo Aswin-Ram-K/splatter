@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Splatter custom styles */
+
+body {
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	font-family: "JetBrains Mono", monospace;
+	background-color: #1a1b26;
+	color: #a9b1d6;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: #1a1b26;
+}
+
+::-webkit-scrollbar-thumb {
+	background: #32344a;
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #44466a;
+}
+
+/* Terminal selection */
+::selection {
+	background: #3b4261;
+	color: #a9b1d6;
+}
+
+/* Ghostty terminal canvas */
+.ghostty-canvas {
+	display: block;
+	cursor: text;
+}
+
+/* Status dot animations */
+@keyframes pulse-green {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.5;
+	}
+}
+
+@keyframes pulse-red {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.3;
+	}
+}
+
+.status-working {
+	animation: pulse-green 2s infinite;
+}
+
+.status-error {
+	animation: pulse-red 1s infinite;
+}
