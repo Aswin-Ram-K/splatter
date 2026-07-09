@@ -1,7 +1,7 @@
 # Splatter — Build, Audit, Fix & Verify Plan
 
 **Last updated:** 2026-07-09  
-**Status:** Phase 0 ✅ COMPLETE — Phase 1 ✅ COMPLETE
+**Status:** Phase 0 ✅ COMPLETE — Phase 1 ✅ COMPLETE — Phase 2 ✅ COMPLETE
 
 ---
 
@@ -380,7 +380,31 @@ Remove the `listen("layout-changed")` handler since App.tsx already handles it.
 
 ---
 
-## Phase 3 — Runtime & UX Stabilization
+## Phase 2 -- Medium Bug Fixes COMPLETE
+
+### 2.1 Dead Code -- CLEANED
+- Removed unused spawn_agent() from agent_commands.rs
+- Removed unused Emitter import
+- HotkeyConfig helper methods already had #[allow(dead_code)]
+
+### 2.2 Double-Lock -- FIXED
+- Removed redundant second agents.lock() in write_to_agent()
+
+### 2.3 Ghostty Types -- CLEANED
+- Removed duplicate onResize from web/src/types/ghostty-web.d.ts
+- NPM package provides types natively
+
+### 2.4 Split Node IDs -- FIXED
+- json_serialize_node() now generates unique IDs for split nodes (starts at 1000000)
+- Each split and its children get sequential unique IDs during traversal
+
+### 2.5 Duplicate Listeners -- FIXED
+- Removed listen('layout-changed') from App.tsx
+- Layout.tsx's listener properly updates the Zustand store
+
+---
+
+## Phase 3 -- Runtime & UX Stabilization
 
 ### 3.1 — Verify Ghostty WASM loads in production build
 
