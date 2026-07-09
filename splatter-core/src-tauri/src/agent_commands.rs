@@ -10,6 +10,7 @@ pub async fn spawn_agent(
     profile_id: String,
     cols: u16,
     rows: u16,
+    layout_node_id: Option<u64>,
 ) -> Result<String, String> {
     let agents = app.state::<Arc<Mutex<AgentManager>>>().inner();
     let mut agents_guard = agents.lock().map_err(|e| e.to_string())?;
@@ -17,8 +18,12 @@ pub async fn spawn_agent(
     let id = agents_guard.spawn(&profile_id, cols, rows)
         .map_err(|e| e.to_string())?;
 
-    // Emit agent-spawned event to webview
-    app.emit("agent-spawned", &id.to_string())
+    // Emit agent-spawned event to webview with layout node id
+    let payload = serde_json::json!({
+        "agent_id": id.to_string(),
+        "layout_node_id": layout_node_id,
+    });
+    app.emit("agent-spawned", &payload)
         .map_err(|e| e.to_string())?;
 
     Ok(id.to_string())

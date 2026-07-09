@@ -105,6 +105,25 @@ fn main() {
             let _ = env_logger::Builder::from_env(env_logger::Env::default())
                 .try_init();
 
+            // Start PTY read loop background task
+            let agents = state.agents.clone();
+            let app_handle = app.handle();
+            tauri::async_runtime::spawn(async move {
+                use std::time::Duration;
+                loop {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    let mut agents = agents.lock().unwrap();
+                    let outputs = agents.drain_outputs();
+                    for (agent_id, data) in outputs {
+                        let event = splatter_core::agent::AgentOutputEvent {
+                            agent_id: agent_id.to_string(),
+                            data,
+                        };
+                        let _ = app_handle.emit("agent-output", event);
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -316,9 +316,18 @@ impl Session {
         }
 
         // Write to master FD using libc
-        let n = unsafe { libc::write(self.master_fd, data.as_ptr() as *const libc::c_void, data.len()) };
+        let n = unsafe {
+            libc::write(
+                self.master_fd,
+                data.as_ptr() as *const libc::c_void,
+                data.len(),
+            )
+        };
         if n < 0 {
-            return Err(anyhow::anyhow!("write failed: {}", std::io::Error::last_os_error()));
+            return Err(anyhow::anyhow!(
+                "write failed: {}",
+                std::io::Error::last_os_error()
+            ));
         }
 
         self.record_input(n as usize);
@@ -359,7 +368,13 @@ impl Session {
 
         if poll_fds[0].revents & libc::POLLIN != 0 {
             // Read from master FD using libc
-            let n = unsafe { libc::read(self.master_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+            let n = unsafe {
+                libc::read(
+                    self.master_fd,
+                    buf.as_mut_ptr() as *mut libc::c_void,
+                    buf.len(),
+                )
+            };
             if n > 0 {
                 return Ok(Some(n as usize));
             }
