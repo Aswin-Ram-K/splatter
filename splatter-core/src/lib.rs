@@ -25,7 +25,7 @@ pub mod window;
 
 pub use agent::{AgentId, AgentManager, AgentProfile, AgentStatus, Session};
 pub use config::{Config, Settings, TerminalSettings, CrashReportingSettings};
-pub use layout::{LayoutNode, LayoutTree, LeafNode, SplitDirection, SplitNode};
+pub use layout::{LayoutNode, LayoutTree, SplitDirection};
 pub use notification::NotificationSender;
 pub use plugin::{PluginHost, PluginManifest};
 pub use tray::{TrayManager, TrayStatus};

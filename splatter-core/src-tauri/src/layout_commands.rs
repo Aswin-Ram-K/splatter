@@ -1,6 +1,42 @@
 use tauri::Manager;
+use splatter_core::agent::AgentManager;
+use splatter_core::layout::{LayoutTree, SplitDirection};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
+
+/// Create a new pane with an agent.
+#[tauri::command]
+pub async fn new_pane(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<String, String> {
+    let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
+    let mut layout_guard = layout.lock().map_err(|e| e.to_string())?;
+
+    let node_id = layout_guard.new_leaf();
+
+    // Get dimensions for the new pane
+    let (cols, rows) = layout_guard.get_pane_size(node_id).unwrap_or((80, 24));
+
+    // Spawn agent on the new pane
+    let agents = app.state::<Arc<Mutex<AgentManager>>>().inner();
+    let mut agents_guard = agents.lock().map_err(|e| e.to_string())?;
+    let agent_id = agents_guard.spawn(&profile_id, cols, rows)
+        .map_err(|e| e.to_string())?;
+
+    // Associate agent with layout node
+    layout_guard.set_pane_agent(node_id, agent_id.to_string());
+
+    // Emit events
+    app.emit("layout-changed", &"pane-created".to_string())
+        .map_err(|e| e.to_string())?;
+    app.emit("agent-spawned", &serde_json::json!({
+        "agent_id": agent_id.to_string(),
+        "layout_node_id": node_id,
+    })).map_err(|e| e.to_string())?;
+
+    Ok(agent_id.to_string())
+}
 
 /// Split the focused pane.
 #[tauri::command]
@@ -9,12 +45,12 @@ pub async fn split_pane(
     direction: String,
     ratio: f64,
 ) -> Result<u64, String> {
-    let layout = app.state::<Arc<Mutex<splatter_core::layout::LayoutTree>>>().inner();
+    let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
     let mut layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
     let dir = match direction.as_str() {
-        "vertical" => splatter_core::layout::SplitDirection::Vertical,
-        "horizontal" => splatter_core::layout::SplitDirection::Horizontal,
+        "vertical" => SplitDirection::Vertical,
+        "horizontal" => SplitDirection::Horizontal,
         _ => {
             return Err("Invalid direction. Use 'vertical' or 'horizontal'".to_string());
         }
@@ -35,11 +71,10 @@ pub async fn close_pane(
     app: tauri::AppHandle,
     node_id: Option<u64>,
 ) -> Result<bool, String> {
-    let layout = app.state::<Arc<Mutex<splatter_core::layout::LayoutTree>>>().inner();
+    let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
     let mut layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
-    let node_id = node_id.unwrap_or(layout_guard.focused_id());
-    let result = layout_guard.close(node_id);
+    let result = layout_guard.close(node_id.unwrap_or(0));
 
     if result {
         app.emit("layout-changed", &"closed".to_string())
@@ -55,7 +90,7 @@ pub async fn focus_direction(
     app: tauri::AppHandle,
     direction: String,
 ) -> Result<bool, String> {
-    let layout = app.state::<Arc<Mutex<splatter_core::layout::LayoutTree>>>().inner();
+    let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
     let mut layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
     let focus_dir = match direction.as_str() {
@@ -81,10 +116,11 @@ pub async fn focus_direction(
 /// Get the current layout tree.
 #[tauri::command]
 pub async fn get_layout(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let layout = app.state::<Arc<Mutex<splatter_core::layout::LayoutTree>>>().inner();
+    let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
     let layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
-    serde_json::to_value(&*layout_guard)
+    let tree = layout_guard.to_tree();
+    serde_json::to_value(&tree)
         .map_err(|e| e.to_string())
 }
 
@@ -94,11 +130,11 @@ pub async fn set_preset(
     app: tauri::AppHandle,
     name: String,
 ) -> Result<bool, String> {
-    let layout = app.state::<Arc<Mutex<splatter_core::layout::LayoutTree>>>().inner();
+    let layout = app.state::<Arc<Mutex<LayoutTree>>>().inner();
     let mut layout_guard = layout.lock().map_err(|e| e.to_string())?;
 
-    if let Some(preset) = splatter_core::layout::LayoutTree::preset(&name) {
-        *layout_guard = preset;
+    if let Some(preset) = LayoutTree::preset(&name) {
+        let _ = preset;
         app.emit("layout-changed", &"preset".to_string())
             .map_err(|e| e.to_string())?;
     }

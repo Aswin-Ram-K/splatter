@@ -138,6 +138,7 @@ fn main() {
             agent_commands::pin_agent,
             agent_commands::unpin_agent,
             // Layout commands
+            layout_commands::new_pane,
             layout_commands::split_pane,
             layout_commands::close_pane,
             layout_commands::focus_direction,
