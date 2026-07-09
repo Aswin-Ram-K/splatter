@@ -99,6 +99,13 @@ pub struct AgentState {
     pub tags: Vec<String>,
 }
 
+/// Output event emitted to the Tauri event system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentOutputEvent {
+    pub agent_id: String,
+    pub data: Vec<u8>,
+}
+
 /// Process PID (opaque handle).
 #[derive(Debug, Clone, Copy)]
 pub struct ProcessPid(nix::unistd::Pid);
@@ -675,6 +682,35 @@ impl AgentManager {
         if let Some(session) = self.sessions.get_mut(&agent_id) {
             session.groups.push(group);
         }
+    }
+
+    /// Drain output from all PTY sessions.
+    ///
+    /// Reads from each session's PTY master and returns
+    /// a Vec of (agent_id, output_data) for agents with new output.
+    pub fn drain_outputs(&mut self) -> Vec<(AgentId, Vec<u8>)> {
+        let mut results = Vec::new();
+
+        for (id, session) in self.sessions.iter_mut() {
+            let mut buf = [0u8; 4096];
+            match session.read(&mut buf) {
+                Ok(Some(n)) if n > 0 => {
+                    let output = buf[..n].to_vec();
+                    session.write_output(&output);
+                    results.push((*id, output));
+                }
+                Ok(Some(0)) => {
+                    // EOF — agent exited
+                    session.update_status(AgentStatus::Done);
+                }
+                Err(_) => {
+                    session.update_status(AgentStatus::Error);
+                }
+                _ => {} // WouldBlock
+            }
+        }
+
+        results
     }
 
     /// Persist agent state to disk.
