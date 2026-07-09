@@ -3,6 +3,7 @@
  */
 
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import type { LayoutNode } from "@/types";
 
 interface LayoutStore {
@@ -33,9 +34,9 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
 	panes: new Map(),
 	sidebarVisible: true,
 
-	setRoot: (node) => set({ root: node }),
+setRoot: (node) => set({ root: node }),
 
-	splitPane: (direction, ratio) => {
+splitPane: (direction, ratio) => {
 		const state = get();
 		if (!state.focusedNodeId) return 0;
 
@@ -75,13 +76,13 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
 						y: currentRect.y,
 						width: Math.floor(currentRect.width * ratio),
 						height: currentRect.height,
-					}
+				}
 				: {
 						x: currentRect.x,
 						y: currentRect.y,
 						width: currentRect.width,
 						height: Math.floor(currentRect.height * ratio),
-					};
+				};
 
 		const splitNodeId = Date.now();
 		const rightNodeId = Date.now() + 1;
@@ -115,6 +116,16 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
 				panes: newPanes,
 			});
 		}
+
+		// Spawn a default agent on the new pane
+		invoke("spawn_agent", {
+			profile_id: "pi-agent",
+			cols: 80,
+			rows: 24,
+			layout_node_id: rightNodeId,
+		}).catch((err: unknown) => {
+			console.error("Failed to spawn agent on split:", err);
+		});
 
 		return rightNodeId;
 	},

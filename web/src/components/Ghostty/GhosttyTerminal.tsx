@@ -27,7 +27,7 @@ export function GhosttyTerminal({
 		agentId,
 		onOutput: useCallback(
 			(data: Uint8Array) => {
-				// Forward terminal input to PTY via Tauri IPC
+				// Forward terminal input (keyboard) to PTY via Tauri IPC
 				if (agentId) {
 					invoke("write_to_agent", {
 						agent_id: agentId,
